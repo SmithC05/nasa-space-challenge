@@ -1,223 +1,48 @@
-# 🚀 ORBITAL: Mission Control — Developer Setup & Run Guide
+# 🚀 ORBITAL: Mission Control — Dev Setup & Run
 
-This single-file developer guide covers everything needed to clone, install, configure, migrate the local database, and run the **ORBITAL: Mission Control** monorepo on your local machine.
+### 1. Initial Setup (Run Once)
 
----
-
-## 📋 1. Prerequisites
-
-Ensure you have the following installed on your development workstation:
-
-| Tool | Minimum Version | Notes |
-|---|---|---|
-| **Node.js** | `v22+` (v26 verified) | Node runtime (`node -v`) |
-| **pnpm** | `v10+` (v12 verified) | Package manager (`npm install -g pnpm`) |
-| **Git** | Latest stable | Version control (`git --version`) |
-| **Browser** | Latest Chrome / Edge / Firefox | WebGL 2.0 support for 3D Earth & Satellite canvas |
-
-> **Note on Database:** You **do NOT need Docker or external PostgreSQL installed**. ORBITAL uses **PGlite** (an embedded WebAssembly/C PostgreSQL engine) for local development.
-
----
-
-## ⚡ 2. Quickstart (Under 2 Minutes)
-
-Open PowerShell or terminal in your repository directory:
+Open PowerShell or Command Prompt in the project folder and run:
 
 ```powershell
-# 1. Install all dependencies across all apps and packages
-pnpm install
-
-# 2. Setup environment variables (copy templates if not already present)
-Copy-Item apps/api/.env.example apps/api/.env -ErrorAction SilentlyContinue
-Copy-Item apps/web/.env.example apps/web/.env.local -ErrorAction SilentlyContinue
-
-# 3. Initialize the local PGlite database, run migrations, and load seed scenarios
-pnpm db:setup
-
-# 4. Start both Frontend and Backend concurrently
-pnpm dev
+.\setup.bat
 ```
+
+> *Or if using pnpm directly:*
+> ```powershell
+> pnpm.cmd install
+> pnpm.cmd db:setup
+> ```
 
 ---
 
-## 🌐 3. Local Services & URLs
-
-Once `pnpm dev` is running, open the following URLs in your browser:
-
-| Service | Local URL | Description |
-|---|---|---|
-| **Frontend Web App** | [http://localhost:5173](http://localhost:5173) | Interactive 3D Mission Control browser game |
-| **Backend API** | [http://localhost:4000](http://localhost:4000) | Express REST API & Socket.IO multiplayer server |
-| **API Health Check** | [http://localhost:4000/health](http://localhost:4000/health) | Returns JSON status and database connectivity |
-
----
-
-## ⚙️ 4. Environment Configuration
-
-The monorepo provides `.env.example` templates for both frontend and backend.
-
-### Backend (`apps/api/.env`)
-```env
-NODE_ENV=development
-PORT=4000
-CLIENT_ORIGIN=http://localhost:5173
-DATABASE_PROVIDER=pglite
-PGLITE_DATA_DIR=.local/pglite
-```
-
-### Frontend (`apps/web/.env.local`)
-```env
-VITE_API_URL=http://localhost:4000
-VITE_SOCKET_URL=http://localhost:4000
-```
-
-> **Security Rule:** Never prefix backend database connection strings or secrets with `VITE_`.
-
----
-
-## 🗄️ 5. Database Management (PGlite & Drizzle ORM)
-
-Local database files are stored inside `apps/api/.local/pglite/`.
-
-### Available Database Commands:
+### 2. Start the App
 
 ```powershell
-# Complete initialization (migrations + seed scenarios)
-pnpm db:setup
-
-# Apply schema migrations to local database
-pnpm db:migrate
-
-# Populate/refresh mission scenario seed data
-pnpm db:seed
-
-# Generate new migration files after modifying packages/database/src/schema.ts
-pnpm db:generate
-
-# Hard reset: drops all tables, applies migrations, and re-seeds (non-destructive to Git)
-pnpm db:reset
+.\dev.bat
 ```
 
-### Database Tables:
-- `missions`: Preloaded scientific scenarios (Earth Sentinel, Artemis, Ares, NEA).
-- `spacecraft_designs`: Saved modular spacecraft configurations and telemetry snapshots.
-- `launch_configs`: Validated booster and trajectory pairing records.
-- `mission_rooms`: Active multiplayer room states and codes.
-- `team_members`: Connected engineers, assigned roles, and readiness status.
-- `mission_reports`: Historical post-flight evaluation scores and accolades.
+> *Or if using pnpm directly:*
+> ```powershell
+> pnpm.cmd dev
+> ```
+
+This automatically starts both the **Frontend** and **Backend** together.
 
 ---
 
-## 🏃 6. Running Services Independently
+### 3. Open in Browser
 
-You can run individual services if you are working exclusively on one module:
-
-```powershell
-# Run ONLY Frontend (Vite on port 5173)
-pnpm --filter @orbital/web dev
-
-# Run ONLY Backend API & Sockets (Express on port 4000)
-pnpm --filter @orbital/api dev
-
-# Run ONLY Database package scripts
-pnpm --filter @orbital/database db:setup
-```
+- **Game (Frontend):** [http://localhost:5173](http://localhost:5173)
+- **Backend API:** [http://localhost:4000](http://localhost:4000)
+- **Health Check:** [http://localhost:4000/health](http://localhost:4000/health)
 
 ---
 
-## 🧪 7. Quality Checks, Testing & Building
+### Useful Commands
 
-Before committing or opening a PR, run the automated verification suite:
-
-```powershell
-# 1. Type check all 6 workspace packages and apps
-pnpm typecheck
-
-# 2. Run unit tests (Astrodynamics, vis-viva, power balance, crisis resolution)
-pnpm test
-
-# 3. Build production bundles for all packages and web apps
-pnpm build
-```
-
----
-
-## 📂 8. Monorepo Project Structure
-
-```text
-orbital-mission-control/
-├── apps/
-│   ├── web/                    # React 19, Vite, Tailwind CSS, Three.js (R3F), Zustand
-│   │   ├── src/
-│   │   │   ├── features/       # 5 Core Game Feature Modules:
-│   │   │   │   ├── mission-hub/          # M01: Scenarios & briefings
-│   │   │   │   ├── spacecraft-lab/       # M02: Modular spacecraft builder & 3D visualizer
-│   │   │   │   ├── orbit-launch/         # M03: 3D Earth trajectory & booster selector
-│   │   │   │   ├── mission-operations/   # M04: Telemetry monitors, crises & reports
-│   │   │   │   └── multiplayer/          # M05: Room lobby, roles & tactical chat
-│   │   │   ├── three/                    # 3D R3F Canvas components (SpacecraftCanvas, EarthOrbitCanvas)
-│   │   │   └── store/                    # Zustand centralized game store
-│   │
-│   └── api/                    # Node.js, Express, Socket.IO, Drizzle ORM
-│       └── src/
-│           ├── routes/         # REST endpoints (/health, /api/scenarios, /api/designs, etc.)
-│           └── sockets/        # Real-time room sync, telemetry tick loop & crisis events
-│
-├── packages/
-│   ├── contracts/              # Shared Zod validation schemas & TypeScript types
-│   ├── simulation-engine/      # Orbital mechanics, power margin calculations & tick simulator
-│   ├── game-data/              # Catalogs: scenarios, components, orbits, vehicles, crises
-│   └── database/               # Drizzle ORM schema, PGlite client, migration & seed scripts
-│
-├── database/
-│   ├── migrations/             # SQL DDL migrations
-│   └── seeds/                  # Scenarios JSON seed files
-│
-├── pnpm-workspace.yaml
-├── tsconfig.base.json
-├── package.json
-└── README.dev                  # This file
-```
-
----
-
-## 🔧 9. Troubleshooting
-
-### 1. `node` or `pnpm` not recognized in PowerShell
-Ensure Node.js and pnpm paths are loaded in your current shell session:
-```powershell
-$env:PATH = "C:\Program Files\nodejs;C:\Program Files\Git\cmd;C:\Users\$env:USERNAME\AppData\Roaming\npm;" + $env:PATH
-```
-
-### 2. Port `5173` or `4000` is already in use
-Check what process is holding the port and terminate it:
-```powershell
-Get-NetTCPConnection -LocalPort 4000, 5173 -ErrorAction SilentlyContinue | Select-Object OwningProcess, LocalPort
-Stop-Process -Id <PID> -Force
-```
-
-### 3. Local PGlite database is inconsistent or locked
-Reset the local embedded database back to clean state:
-```powershell
-pnpm db:reset
-```
-
-### 4. Multiplayer Socket fails to connect
-- Verify that `apps/api` is running on port 4000 (`http://localhost:4000/health`).
-- Ensure `VITE_SOCKET_URL=http://localhost:4000` is present in `apps/web/.env.local`.
-
----
-
-## 👥 10. Five Developer Feature Module Ownership
-
-| Module | Module Name | Primary Responsibilities |
-|---|---|---|
-| **M01** | **Mission Hub** | Scientific campaigns, briefings, hazard requirements & difficulty ratings |
-| **M02** | **Spacecraft Lab** | 3D satellite assembly, mass/power/budget telemetry & validation rules |
-| **M03** | **Orbit & Launch** | 3D Earth globe, trajectory ellipses, vis-viva math & rocket compatibility |
-| **M04** | **Operations Center** | Real-time flight clock, telemetry streaming, crisis choices & debrief reports |
-| **M05** | **Multiplayer** | Socket.IO rooms, 4 engineering roles (Flight Dir, Systems, Trajectory, Science) & chat |
-
----
-
-*2026 NASA Space Apps Challenge • ORBITAL: Mission Control*
+| Task | Command |
+|---|---|
+| Reset local database | `pnpm.cmd db:reset` |
+| Run tests | `pnpm.cmd test` |
+| Check types | `pnpm.cmd typecheck` |
