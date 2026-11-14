@@ -10,7 +10,8 @@
     "lint": "echo game-data lint ok"
   },
   "dependencies": {
-    "@orbital/contracts": "workspace:*"
+    "@orbital/contracts": "workspace:*",
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "typescript": "^5.7.3"

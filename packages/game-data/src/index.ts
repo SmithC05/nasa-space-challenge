@@ -517,75 +517,9 @@ export const SPACECRAFT_COMPONENTS: ComponentDefinition[] = [
 ];
 
 // ==========================================
-// 3. ORBIT PROFILES
+// 3. ORBIT PROFILES & CATALOG
 // ==========================================
-export const ORBIT_PROFILES: OrbitProfile[] = [
-  {
-    id: 'orbit-leo-iss',
-    name: 'Low Earth Orbit (LEO)',
-    type: 'LEO',
-    perigeeKm: 410,
-    apogeeKm: 420,
-    inclinationDeg: 51.6,
-    orbitalPeriodMin: 92.8,
-    eclipseFraction: 0.38,
-    requiredDeltaVMps: 9400,
-    radiationSeverity: 'LOW',
-    description: 'Standard low-earth orbit with moderate inclination. Covers inhabited continents; rapid ground station passes.'
-  },
-  {
-    id: 'orbit-sso-polar',
-    name: 'Sun-Synchronous Polar Orbit (SSO)',
-    type: 'SSO',
-    perigeeKm: 705,
-    apogeeKm: 705,
-    inclinationDeg: 98.2,
-    orbitalPeriodMin: 98.8,
-    eclipseFraction: 0.32,
-    requiredDeltaVMps: 9750,
-    radiationSeverity: 'MEDIUM',
-    description: 'Retrograde polar orbit allowing spacecraft to pass over any given point on Earth at the same local solar time. Gold standard for Earth observation.'
-  },
-  {
-    id: 'orbit-gto',
-    name: 'Geostationary Transfer Orbit (GTO)',
-    type: 'GTO',
-    perigeeKm: 250,
-    apogeeKm: 35786,
-    inclinationDeg: 28.5,
-    orbitalPeriodMin: 631.0,
-    eclipseFraction: 0.12,
-    requiredDeltaVMps: 11800,
-    radiationSeverity: 'HIGH',
-    description: 'Highly elliptical staging orbit traversing the Van Allen radiation belts up to 35,786 km geostationary altitude.'
-  },
-  {
-    id: 'orbit-molniya',
-    name: 'Molniya High-Eccentricity Orbit',
-    type: 'MOLNIYA',
-    perigeeKm: 600,
-    apogeeKm: 39750,
-    inclinationDeg: 63.4,
-    orbitalPeriodMin: 718.0,
-    eclipseFraction: 0.1,
-    requiredDeltaVMps: 11950,
-    radiationSeverity: 'HIGH',
-    description: 'Critical angle inclination (63.4°) preventing apogee rotation. Spends over 8 hours lingering over high-latitude polar regions.'
-  },
-  {
-    id: 'orbit-tli',
-    name: 'Trans-Lunar / Interplanetary Injection (TLI)',
-    type: 'TLI',
-    perigeeKm: 300,
-    apogeeKm: 384400,
-    inclinationDeg: 28.5,
-    orbitalPeriodMin: 8640.0,
-    eclipseFraction: 0.05,
-    requiredDeltaVMps: 13200,
-    radiationSeverity: 'EXTREME',
-    description: 'High-energy parabolic escape trajectory reaching the Moon or interplanetary transfer windows.'
-  }
-];
+export * from './orbit-profiles';
 
 // ==========================================
 // 4. LAUNCH VEHICLES
