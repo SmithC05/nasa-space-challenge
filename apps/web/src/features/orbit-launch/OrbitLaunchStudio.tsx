@@ -5,11 +5,20 @@ import { LaunchVehicleCard } from './LaunchVehicleCard';
 import { LaunchVehicleComparisonModal } from './LaunchVehicleComparisonModal';
 import { FlightIntegrationChecklist } from './FlightIntegrationChecklist';
 import { LaunchEducationalGuide } from './LaunchEducationalGuide';
+import { LaunchConfigurationReviewModal } from './LaunchConfigurationReviewModal';
 import {
   ArrowUpDown,
   BookOpen,
+  Check,
+  CheckCircle2,
+  Compass,
+  FileCheck,
+  Lock,
   Orbit,
-  Rocket
+  Rocket,
+  ShieldCheck,
+  Sparkles,
+  X
 } from 'lucide-react';
 
 export function OrbitLaunchStudio() {
@@ -23,6 +32,7 @@ export function OrbitLaunchStudio() {
     launchConfig,
     currentDesign,
     selectedScenario,
+    confirmLaunchConfiguration,
     startMissionLaunch,
     setActiveTab
   } = useGameStore();
@@ -30,17 +40,29 @@ export function OrbitLaunchStudio() {
   const [isLaunchingAnim, setIsLaunchingAnim] = useState(false);
   const [isComparisonOpen, setIsComparisonOpen] = useState(false);
   const [isEduGuideOpen, setIsEduGuideOpen] = useState(false);
+  const [isReviewOpen, setIsReviewOpen] = useState(false);
 
   const selectedCategory =
     (selectedOrbit as any).category ||
     (selectedOrbit.id === 'orbit-polar' ? 'POLAR' : selectedOrbit.type);
 
   const handleLaunchClick = () => {
+    if (!launchConfig.isCompatible) return;
+
+    confirmLaunchConfiguration();
     setIsLaunchingAnim(true);
     setTimeout(() => {
       startMissionLaunch();
       setActiveTab('ops');
     }, 2000);
+  };
+
+  const scrollToOrbit = () => {
+    document.getElementById('orbit-section')?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const scrollToVehicle = () => {
+    document.getElementById('vehicle-section')?.scrollIntoView({ behavior: 'smooth' });
   };
 
   return (
@@ -51,14 +73,28 @@ export function OrbitLaunchStudio() {
           <div className="flex items-center space-x-2 text-xs font-mono text-cyan-400 mb-1">
             <span>M03 // ORBIT & LAUNCH STUDIO</span>
             <span>•</span>
-            <span>PHASE 4: VEHICLE CATALOG & SELECTION</span>
+            <span>PHASE 5: LAUNCH CONFIGURATION & VALIDATION</span>
           </div>
           <h2 className="text-2xl lg:text-3xl font-extrabold text-white">
             Orbital Insertion & Launch Configuration
           </h2>
+          <p className="text-xs text-slate-400 mt-1 font-mono">
+            Active Campaign: <strong className="text-white">{selectedScenario.name}</strong> • Payload:{' '}
+            <strong className="text-cyan-300">{currentDesign.name}</strong> ({currentDesign.resources.totalMassKg} kg)
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* Review Configuration Button */}
+          <button
+            type="button"
+            onClick={() => setIsReviewOpen(true)}
+            className="px-4 py-3 rounded-xl font-mono text-xs font-bold bg-space-850 hover:bg-space-800 text-cyan-300 border border-slate-700 hover:border-cyan-500/50 flex items-center space-x-1.5 shadow-md transition-colors"
+          >
+            <FileCheck className="w-4 h-4 text-cyan-400" />
+            <span>REVIEW CONFIGURATION</span>
+          </button>
+
           {/* Compare Fleet Button */}
           <button
             type="button"
@@ -87,13 +123,99 @@ export function OrbitLaunchStudio() {
               isLaunchingAnim
                 ? 'bg-amber-500 text-black animate-pulse'
                 : launchConfig.isCompatible
-                  ? 'bg-gradient-to-r from-emerald-400 via-cyan-400 to-blue-500 hover:from-emerald-300 hover:to-blue-400 text-black glow-cyan'
-                  : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                  ? 'bg-gradient-to-r from-emerald-400 via-cyan-400 to-blue-500 hover:from-emerald-300 hover:to-blue-400 text-black glow-cyan cursor-pointer'
+                  : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700/60'
             }`}
           >
-            <Rocket className={`w-5 h-5 ${isLaunchingAnim ? 'animate-bounce' : ''}`} />
-            <span>{isLaunchingAnim ? 'IGNITION & LIFTOFF...' : 'AUTHORIZE LAUNCH'}</span>
+            {isLaunchingAnim ? (
+              <>
+                <Rocket className="w-5 h-5 animate-bounce" />
+                <span>IGNITION & LIFTOFF...</span>
+              </>
+            ) : launchConfig.isCompatible ? (
+              <>
+                <Rocket className="w-5 h-5" />
+                <span>AUTHORIZE LAUNCH</span>
+              </>
+            ) : (
+              <>
+                <Lock className="w-4 h-4" />
+                <span>LAUNCH BLOCKED</span>
+              </>
+            )}
           </button>
+        </div>
+      </div>
+
+      {/* 6-Stage Workflow Progress Banner */}
+      <div className="bg-space-900 border border-slate-800 rounded-2xl px-6 py-3 shadow-md font-mono text-xs overflow-x-auto">
+        <div className="flex items-center justify-between min-w-[720px] text-slate-400">
+          <button
+            onClick={() => setActiveTab('lab')}
+            className="flex items-center space-x-1.5 text-emerald-400 hover:text-emerald-300 transition-colors font-bold"
+            title="Navigate to Spacecraft Design Lab"
+          >
+            <span className="w-5 h-5 rounded-full bg-emerald-950 border border-emerald-800 flex items-center justify-center text-[10px]">1</span>
+            <span>Spacecraft Ready ({currentDesign.resources.totalMassKg} kg)</span>
+          </button>
+
+          <span className="text-slate-600">→</span>
+
+          <button
+            onClick={scrollToOrbit}
+            className="flex items-center space-x-1.5 text-emerald-400 hover:text-emerald-300 transition-colors font-bold"
+            title="Jump to Orbit Selection"
+          >
+            <span className="w-5 h-5 rounded-full bg-emerald-950 border border-emerald-800 flex items-center justify-center text-[10px]">2</span>
+            <span>Orbit: {selectedOrbit.name}</span>
+          </button>
+
+          <span className="text-slate-600">→</span>
+
+          <button
+            onClick={scrollToVehicle}
+            className="flex items-center space-x-1.5 text-emerald-400 hover:text-emerald-300 transition-colors font-bold"
+            title="Jump to Vehicle Selection"
+          >
+            <span className="w-5 h-5 rounded-full bg-emerald-950 border border-emerald-800 flex items-center justify-center text-[10px]">3</span>
+            <span>Vehicle: {selectedVehicle.name}</span>
+          </button>
+
+          <span className="text-slate-600">→</span>
+
+          <div
+            className={`flex items-center space-x-1.5 font-bold ${
+              launchConfig.isCompatible ? 'text-emerald-400' : 'text-rose-400'
+            }`}
+          >
+            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] border ${
+              launchConfig.isCompatible ? 'bg-emerald-950 border-emerald-800' : 'bg-rose-950 border-rose-800'
+            }`}>
+              4
+            </span>
+            <span>{launchConfig.isCompatible ? 'Gates Passed' : 'Gates Blocked'}</span>
+          </div>
+
+          <span className="text-slate-600">→</span>
+
+          <button
+            onClick={() => setIsReviewOpen(true)}
+            className="flex items-center space-x-1.5 text-cyan-300 hover:text-cyan-200 transition-colors font-bold bg-cyan-950/60 px-2 py-1 rounded border border-cyan-800"
+          >
+            <span className="w-5 h-5 rounded-full bg-cyan-900 border border-cyan-700 flex items-center justify-center text-[10px]">5</span>
+            <span>Review & Clearance</span>
+          </button>
+
+          <span className="text-slate-600">→</span>
+
+          <div
+            className={`flex items-center space-x-1.5 font-bold ${
+              launchConfig.isCompatible ? 'text-slate-300' : 'text-slate-600'
+            }`}
+          >
+            <span className="w-5 h-5 rounded-full bg-space-850 border border-slate-700 flex items-center justify-center text-[10px]">6</span>
+            <span>Handoff to Ops</span>
+          </div>
         </div>
       </div>
 
@@ -101,7 +223,7 @@ export function OrbitLaunchStudio() {
       <EarthOrbitCanvas orbit={selectedOrbit} isLaunching={isLaunchingAnim} />
 
       {/* 1. Orbit Profile Selection */}
-      <div className="bg-space-900 border border-slate-800 rounded-3xl p-6 shadow-xl">
+      <div id="orbit-section" className="bg-space-900 border border-slate-800 rounded-3xl p-6 shadow-xl">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-mono font-bold text-slate-400 uppercase tracking-wider flex items-center space-x-2">
             <Orbit className="w-4 h-4 text-cyan-400" />
@@ -164,7 +286,7 @@ export function OrbitLaunchStudio() {
       </div>
 
       {/* 2 & 3. Launch Vehicle Selection Grid & Flight Integration Checklist */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div id="vehicle-section" className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Vehicles Grid */}
         <div className="lg:col-span-8 bg-space-900 border border-slate-800 rounded-3xl p-6 shadow-xl">
           <div className="flex items-center justify-between mb-4">
@@ -211,9 +333,24 @@ export function OrbitLaunchStudio() {
             currentDesign={currentDesign}
             selectedScenario={selectedScenario}
             launchConfig={launchConfig}
+            onOpenReview={() => setIsReviewOpen(true)}
           />
         </div>
       </div>
+
+      {/* Launch Configuration Review Modal */}
+      <LaunchConfigurationReviewModal
+        isOpen={isReviewOpen}
+        onClose={() => setIsReviewOpen(false)}
+        selectedVehicle={selectedVehicle}
+        selectedOrbit={selectedOrbit}
+        currentDesign={currentDesign}
+        selectedScenario={selectedScenario}
+        launchConfig={launchConfig}
+        onConfirmLaunch={handleLaunchClick}
+        onNavigateToOrbit={scrollToOrbit}
+        onNavigateToVehicle={scrollToVehicle}
+      />
 
       {/* Comparison Modal */}
       <LaunchVehicleComparisonModal

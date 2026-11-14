@@ -156,6 +156,22 @@ export const LaunchVehicleSchema = z.object({
 });
 export type LaunchVehicle = z.infer<typeof LaunchVehicleSchema>;
 
+export const LaunchConfigurationStatusSchema = z.enum(['DRAFT', 'VALIDATED', 'CONFIRMED', 'BLOCKED']);
+export type LaunchConfigurationStatus = z.infer<typeof LaunchConfigurationStatusSchema>;
+
+export const LaunchValidationSummarySchema = z.object({
+  isPayloadCompatible: z.boolean(),
+  isFairingCompatible: z.boolean(),
+  isOrbitCompatible: z.boolean(),
+  isTechnicallyCompatible: z.boolean(),
+  isBudgetCleared: z.boolean(),
+  isMissionSuitable: z.boolean(),
+  overallStatus: z.enum(['VALID', 'WARNING', 'CRITICAL', 'BLOCKED']),
+  errors: z.array(z.string()),
+  warnings: z.array(z.string())
+});
+export type LaunchValidationSummary = z.infer<typeof LaunchValidationSummarySchema>;
+
 export const LaunchConfigurationSchema = z.object({
   vehicleId: z.string(),
   orbitId: z.string(),
@@ -164,7 +180,15 @@ export const LaunchConfigurationSchema = z.object({
   launchSite: z.string(),
   isCompatible: z.boolean(),
   payloadMarginKg: z.number(),
-  estimatedCostMUSD: z.number()
+  estimatedCostMUSD: z.number(),
+  // Phase 5: Developer 04 Mission Operations Handoff fields (backwards-compatible optional)
+  scenarioId: z.string().optional(),
+  spacecraftId: z.string().optional(),
+  spacecraftName: z.string().optional(),
+  status: LaunchConfigurationStatusSchema.optional().default('DRAFT'),
+  validationSummary: LaunchValidationSummarySchema.optional(),
+  totalCostMUSD: z.number().optional(),
+  confirmedAt: z.string().optional()
 });
 export type LaunchConfiguration = z.infer<typeof LaunchConfigurationSchema>;
 

@@ -59,3 +59,53 @@ To support rich UI presentation and 3D visualization without breaking base compa
 - `configurationRestrictions`: Minimum battery endurance, delta-V, thermal notes, protection level.
 - `visualizationParameters`: Orbit radius, color, visibility, animation speed, scale factor.
 - `educationalAssumptions`: Modeling simplifications and fidelity disclaimer.
+
+## 5. Phase 5 Integration Lead Proposal: LaunchConfiguration Handoff Extension
+
+### Developer 04 (Mission Operations Center) Handoff Requirements:
+To initialize real-time Mission Operations upon orbital launch authorization, Developer 04 requires:
+1. `scenarioId`: Active campaign identifier.
+2. `spacecraftId` & `spacecraftName`: Spacecraft identity and payload designation.
+3. `status`: Launch configuration lifecycle status (`'DRAFT' | 'VALIDATED' | 'CONFIRMED' | 'BLOCKED'`).
+4. `validationSummary`: Consolidated gate results, overall status (`'VALID' | 'WARNING' | 'CRITICAL' | 'BLOCKED'`), errors, and warnings.
+5. `totalCostMUSD`: Combined spacecraft and booster cost.
+6. `confirmedAt`: UTC timestamp of flight authorization.
+
+### Proposed Compatible Extensions:
+All added fields are optional with defaults, preserving 100% backward compatibility for all consumers and database serialization.
+```typescript
+export const LaunchConfigurationStatusSchema = z.enum(['DRAFT', 'VALIDATED', 'CONFIRMED', 'BLOCKED']);
+export type LaunchConfigurationStatus = z.infer<typeof LaunchConfigurationStatusSchema>;
+
+export const LaunchValidationSummarySchema = z.object({
+  isPayloadCompatible: z.boolean(),
+  isFairingCompatible: z.boolean(),
+  isOrbitCompatible: z.boolean(),
+  isTechnicallyCompatible: z.boolean(),
+  isBudgetCleared: z.boolean(),
+  isMissionSuitable: z.boolean(),
+  overallStatus: z.enum(['VALID', 'WARNING', 'CRITICAL', 'BLOCKED']),
+  errors: z.array(z.string()),
+  warnings: z.array(z.string())
+});
+export type LaunchValidationSummary = z.infer<typeof LaunchValidationSummarySchema>;
+
+export const LaunchConfigurationSchema = z.object({
+  vehicleId: z.string(),
+  orbitId: z.string(),
+  spacecraftMassKg: z.number().positive(),
+  launchWindow: z.string(),
+  launchSite: z.string(),
+  isCompatible: z.boolean(),
+  payloadMarginKg: z.number(),
+  estimatedCostMUSD: z.number(),
+  // Extended handoff fields
+  scenarioId: z.string().optional(),
+  spacecraftId: z.string().optional(),
+  spacecraftName: z.string().optional(),
+  status: LaunchConfigurationStatusSchema.optional().default('DRAFT'),
+  validationSummary: LaunchValidationSummarySchema.optional(),
+  totalCostMUSD: z.number().optional(),
+  confirmedAt: z.string().optional()
+});
+```

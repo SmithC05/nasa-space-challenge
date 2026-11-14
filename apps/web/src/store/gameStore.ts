@@ -22,7 +22,9 @@ import {
 import {
   calculateSpacecraftResources,
   createInitialSimulationState,
+  createLaunchHandoff,
   generateMissionReport,
+  LaunchHandoffPackage,
   resolveMissionEvent,
   tickSimulation,
   validateLaunchConfiguration,
@@ -61,8 +63,12 @@ interface GameState {
   launchVehicles: LaunchVehicle[];
   selectedVehicle: LaunchVehicle;
   launchConfig: LaunchConfiguration;
+  launchHandoff: LaunchHandoffPackage | null;
   selectOrbit: (orbit: OrbitProfile) => void;
   selectVehicle: (vehicle: LaunchVehicle) => void;
+  confirmLaunchConfiguration: () => boolean;
+  resetLaunchConfirmation: () => void;
+  getLaunchHandoff: () => LaunchHandoffPackage | null;
 
   // Simulation & Operations
   simulationState: MissionSimulationState | null;
@@ -127,7 +133,8 @@ const initialLaunch = validateLaunchConfiguration(
   initialDesign.resources.totalMassKg,
   defaultScenario.budgetMUSD,
   initialDesign.resources.totalCostMUSD,
-  defaultScenario
+  defaultScenario,
+  initialDesign
 );
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -145,13 +152,15 @@ export const useGameStore = create<GameState>((set, get) => ({
       updatedDesign.resources.totalMassKg,
       scenario.budgetMUSD,
       updatedDesign.resources.totalCostMUSD,
-      scenario
+      scenario,
+      updatedDesign
     );
 
     set({
       selectedScenario: scenario,
       currentDesign: updatedDesign,
-      launchConfig: updatedLaunch
+      launchConfig: updatedLaunch,
+      launchHandoff: null
     });
 
     if (activeRoom) {
@@ -191,13 +200,15 @@ export const useGameStore = create<GameState>((set, get) => ({
       updatedDesign.resources.totalMassKg,
       selectedScenario.budgetMUSD,
       updatedDesign.resources.totalCostMUSD,
-      selectedScenario
+      selectedScenario,
+      updatedDesign
     );
 
     set({
       selectedComponentIds: updatedIds,
       currentDesign: updatedDesign,
-      launchConfig: updatedLaunch
+      launchConfig: updatedLaunch,
+      launchHandoff: null
     });
 
     if (activeRoom) {
@@ -219,6 +230,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   launchVehicles: LAUNCH_VEHICLES,
   selectedVehicle: defaultVehicle,
   launchConfig: initialLaunch,
+  launchHandoff: null,
 
   selectOrbit: (orbit) => {
     const { selectedVehicle, currentDesign, selectedScenario, activeRoom } = get();
@@ -228,9 +240,10 @@ export const useGameStore = create<GameState>((set, get) => ({
       currentDesign.resources.totalMassKg,
       selectedScenario.budgetMUSD,
       currentDesign.resources.totalCostMUSD,
-      selectedScenario
+      selectedScenario,
+      currentDesign
     );
-    set({ selectedOrbit: orbit, launchConfig: updatedLaunch });
+    set({ selectedOrbit: orbit, launchConfig: updatedLaunch, launchHandoff: null });
     if (activeRoom) {
       configureLaunchSocket(activeRoom.code, updatedLaunch);
     }
@@ -244,13 +257,62 @@ export const useGameStore = create<GameState>((set, get) => ({
       currentDesign.resources.totalMassKg,
       selectedScenario.budgetMUSD,
       currentDesign.resources.totalCostMUSD,
-      selectedScenario
+      selectedScenario,
+      currentDesign
     );
-    set({ selectedVehicle: vehicle, launchConfig: updatedLaunch });
+    set({ selectedVehicle: vehicle, launchConfig: updatedLaunch, launchHandoff: null });
     if (activeRoom) {
       configureLaunchSocket(activeRoom.code, updatedLaunch);
     }
   },
+
+  confirmLaunchConfiguration: () => {
+    const { selectedVehicle, selectedOrbit, currentDesign, selectedScenario, activeRoom } = get();
+    const handoff = createLaunchHandoff(
+      selectedVehicle,
+      selectedOrbit,
+      currentDesign,
+      selectedScenario
+    );
+
+    if (!handoff.isReadyForOperations) {
+      set({
+        launchHandoff: handoff,
+        launchConfig: handoff.configuration
+      });
+      return false;
+    }
+
+    set({
+      launchHandoff: handoff,
+      launchConfig: handoff.configuration
+    });
+
+    if (activeRoom) {
+      configureLaunchSocket(activeRoom.code, handoff.configuration);
+    }
+
+    return true;
+  },
+
+  resetLaunchConfirmation: () => {
+    const { selectedVehicle, selectedOrbit, currentDesign, selectedScenario } = get();
+    const draftConfig = validateLaunchConfiguration(
+      selectedVehicle,
+      selectedOrbit,
+      currentDesign.resources.totalMassKg,
+      selectedScenario.budgetMUSD,
+      currentDesign.resources.totalCostMUSD,
+      selectedScenario,
+      currentDesign
+    );
+    set({
+      launchHandoff: null,
+      launchConfig: draftConfig
+    });
+  },
+
+  getLaunchHandoff: () => get().launchHandoff,
 
   recalculateDesign: () => {
     const { selectedScenario, selectedOrbit, selectedComponentIds, currentDesign } = get();

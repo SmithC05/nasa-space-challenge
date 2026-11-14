@@ -228,6 +228,43 @@ export interface SpacecraftDimensionsConstraint {
 }
 
 /**
+ * Calculates dynamic stowed spacecraft envelope dimensions (diameter and height in meters)
+ * from selected component models or design specification.
+ */
+export function calculateSpacecraftDimensions(
+  componentsOrDesign?: ComponentDefinition[] | SpacecraftDesign
+): SpacecraftDimensionsConstraint {
+  if (!componentsOrDesign) {
+    return { diameterM: 1.3, heightM: 1.5 };
+  }
+
+  if ('selectedComponentIds' in componentsOrDesign) {
+    const busId = componentsOrDesign.busId;
+    if (busId?.includes('heavy') || busId?.includes('deepspace')) {
+      return { diameterM: 1.8, heightM: 2.1 };
+    } else if (busId?.includes('cubesat')) {
+      return { diameterM: 0.4, heightM: 0.5 };
+    }
+    return { diameterM: 1.3, heightM: 1.5 };
+  }
+
+  const bus = componentsOrDesign.find((c) => c.category === 'bus');
+  if (bus && bus.visualModel?.scale) {
+    const scale = bus.visualModel.scale;
+    const baseDia = Math.max(scale[0], scale[2]);
+    const baseHt = scale[1];
+    return {
+      diameterM: Number((baseDia + 0.1).toFixed(2)),
+      heightM: Number((baseHt + 0.2).toFixed(2))
+    };
+  }
+
+  return { diameterM: 1.3, heightM: 1.5 };
+}
+
+export type LaunchOverallStatus = 'VALID' | 'WARNING' | 'CRITICAL' | 'BLOCKED';
+
+/**
  * Calculates effective payload capacity of a launch vehicle into a target orbit regime.
  * Accounts for high-energy destination penalties (GTO/GEO/TLI) and high-inclination polar penalties (SSO/Polar).
  */
@@ -478,6 +515,7 @@ export interface DetailedLaunchValidation {
 
   // 4. Overall launch clearance (all technical + budget + mission suitability gates must pass)
   isOverallCleared: boolean;
+  overallStatus: LaunchOverallStatus;
 
   // 5. Exact numerical metrics
   effectiveCapacityKg: number;
@@ -646,6 +684,20 @@ export function getDetailedLaunchValidation(
   // Overall clearance requires: technical compatibility + budget clearance + mission suitability
   const isOverallCleared = isTechnicallyCompatible && isBudgetCleared && isMissionSuitable;
 
+  // Determine overall status label: VALID, WARNING, CRITICAL, or BLOCKED
+  let overallStatus: LaunchOverallStatus;
+  if (!isOverallCleared) {
+    const isCritical =
+      payloadMarginKg < -0.2 * effectiveCapacityKg ||
+      !isFairingCompatible ||
+      technicalErrors.some((e) => e.includes('high-energy') || e.includes('envelope'));
+    overallStatus = isCritical ? 'CRITICAL' : 'BLOCKED';
+  } else if (warnings.length > 0) {
+    overallStatus = 'WARNING';
+  } else {
+    overallStatus = 'VALID';
+  }
+
   return {
     isPayloadCompatible,
     isOrbitCompatible,
@@ -663,6 +715,7 @@ export function getDetailedLaunchValidation(
     polarCoverageSatisfied,
 
     isOverallCleared,
+    overallStatus,
 
     effectiveCapacityKg,
     payloadMarginKg,
@@ -722,17 +775,25 @@ export function validateLaunchConfiguration(
   spacecraftMassKg: number,
   scenarioBudgetMUSD: number,
   spacecraftCostMUSD: number,
-  scenario?: MissionScenario | string
+  scenario?: MissionScenario | string,
+  spacecraftDesign?: SpacecraftDesign,
+  spacecraftDimensions?: SpacecraftDimensionsConstraint
 ): LaunchConfiguration {
+  const effectiveDimensions =
+    spacecraftDimensions ??
+    (spacecraftDesign ? calculateSpacecraftDimensions(spacecraftDesign) : undefined);
+
   const detail = getDetailedLaunchValidation(
     vehicle,
     orbit,
     spacecraftMassKg,
     scenarioBudgetMUSD,
     spacecraftCostMUSD,
-    undefined,
+    effectiveDimensions,
     scenario
   );
+
+  const scenarioId = typeof scenario === 'object' ? scenario.id : scenario ?? spacecraftDesign?.scenarioId;
 
   return {
     vehicleId: vehicle.id,
@@ -745,7 +806,101 @@ export function validateLaunchConfiguration(
         : 'Cape Canaveral Space Force Station, SLC-40',
     isCompatible: detail.isOverallCleared,
     payloadMarginKg: detail.payloadMarginKg,
-    estimatedCostMUSD: vehicle.launchCostMUSD
+    estimatedCostMUSD: vehicle.launchCostMUSD,
+    // Phase 5: Extended Developer 04 handoff fields
+    scenarioId,
+    spacecraftId: spacecraftDesign?.id,
+    spacecraftName: spacecraftDesign?.name,
+    status: detail.isOverallCleared ? 'VALIDATED' : 'BLOCKED',
+    validationSummary: {
+      isPayloadCompatible: detail.isPayloadCompatible,
+      isFairingCompatible: detail.isFairingCompatible,
+      isOrbitCompatible: detail.isOrbitCompatible,
+      isTechnicallyCompatible: detail.isTechnicallyCompatible,
+      isBudgetCleared: detail.isBudgetCleared,
+      isMissionSuitable: detail.isMissionSuitable,
+      overallStatus: detail.overallStatus,
+      errors: detail.allErrors,
+      warnings: detail.warnings
+    },
+    totalCostMUSD: detail.totalMissionCostMUSD
+  };
+}
+
+export interface LaunchHandoffPackage {
+  configuration: LaunchConfiguration;
+  validation: DetailedLaunchValidation;
+  scenario: MissionScenario;
+  spacecraft: SpacecraftDesign;
+  orbit: OrbitProfile;
+  vehicle: LaunchVehicle;
+  handoffTimestamp: string;
+  isReadyForOperations: boolean;
+}
+
+/**
+ * Produces the complete, typed launch configuration handoff package consumed by Developer 04
+ * (Mission Operations Center) upon launch authorization.
+ */
+export function createLaunchHandoff(
+  vehicle: LaunchVehicle,
+  orbit: OrbitProfile,
+  spacecraft: SpacecraftDesign,
+  scenario: MissionScenario,
+  dimensions?: SpacecraftDimensionsConstraint
+): LaunchHandoffPackage {
+  const effectiveDimensions = dimensions ?? calculateSpacecraftDimensions(spacecraft);
+  const validation = getDetailedLaunchValidation(
+    vehicle,
+    orbit,
+    spacecraft.resources.totalMassKg,
+    scenario.budgetMUSD,
+    spacecraft.resources.totalCostMUSD,
+    effectiveDimensions,
+    scenario
+  );
+
+  const timestamp = new Date().toISOString();
+  const configuration: LaunchConfiguration = {
+    vehicleId: vehicle.id,
+    orbitId: orbit.id,
+    spacecraftMassKg: spacecraft.resources.totalMassKg,
+    launchWindow: 'T-00:00:00 (Nominal UTC Window)',
+    launchSite:
+      vehicle.class === 'Light'
+        ? 'Vandenberg Space Force Base, SLC-2'
+        : 'Cape Canaveral Space Force Station, SLC-40',
+    isCompatible: validation.isOverallCleared,
+    payloadMarginKg: validation.payloadMarginKg,
+    estimatedCostMUSD: vehicle.launchCostMUSD,
+    scenarioId: scenario.id,
+    spacecraftId: spacecraft.id,
+    spacecraftName: spacecraft.name,
+    status: validation.isOverallCleared ? 'CONFIRMED' : 'BLOCKED',
+    validationSummary: {
+      isPayloadCompatible: validation.isPayloadCompatible,
+      isFairingCompatible: validation.isFairingCompatible,
+      isOrbitCompatible: validation.isOrbitCompatible,
+      isTechnicallyCompatible: validation.isTechnicallyCompatible,
+      isBudgetCleared: validation.isBudgetCleared,
+      isMissionSuitable: validation.isMissionSuitable,
+      overallStatus: validation.overallStatus,
+      errors: validation.allErrors,
+      warnings: validation.warnings
+    },
+    totalCostMUSD: validation.totalMissionCostMUSD,
+    confirmedAt: timestamp
+  };
+
+  return {
+    configuration,
+    validation,
+    scenario,
+    spacecraft,
+    orbit,
+    vehicle,
+    handoffTimestamp: timestamp,
+    isReadyForOperations: validation.isOverallCleared
   };
 }
 

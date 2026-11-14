@@ -31,6 +31,7 @@ interface FlightIntegrationChecklistProps {
   currentDesign: SpacecraftDesign;
   selectedScenario: MissionScenario;
   launchConfig: LaunchConfiguration;
+  onOpenReview?: () => void;
 }
 
 export function FlightIntegrationChecklist({
@@ -38,7 +39,8 @@ export function FlightIntegrationChecklist({
   selectedOrbit,
   currentDesign,
   selectedScenario,
-  launchConfig
+  launchConfig,
+  onOpenReview
 }: FlightIntegrationChecklistProps) {
   const spacecraftMassKg = currentDesign.resources.totalMassKg;
   const spacecraftCostMUSD = currentDesign.resources.totalCostMUSD;
@@ -330,6 +332,17 @@ export function FlightIntegrationChecklist({
               ))}
             </div>
           </div>
+        )}
+
+        {/* Configuration Review Modal Trigger */}
+        {onOpenReview && (
+          <button
+            type="button"
+            onClick={onOpenReview}
+            className="mt-3 w-full py-2.5 px-4 rounded-xl font-mono text-xs font-bold bg-space-850 hover:bg-space-800 text-cyan-300 border border-slate-700 hover:border-cyan-500/50 flex items-center justify-center space-x-2 transition-colors shadow-md"
+          >
+            <span>OPEN COMPLETE CONFIGURATION REVIEW</span>
+          </button>
         )}
       </div>
     </div>
