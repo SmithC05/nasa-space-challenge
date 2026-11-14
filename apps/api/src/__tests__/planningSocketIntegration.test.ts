@@ -74,7 +74,7 @@ describe('Real-Time Socket.IO Mission Planning Integration Tests (Phase 2)', () 
     expect(joinRes.success).toBe(true);
 
     const targetScenario = MISSION_SCENARIOS[1]; // Lunar Prospector
-    let currentRevision = joinRes.data.room.revision;
+    let currentPlanningRev = joinRes.data.room.planningRevision;
 
     // 3. Set up broadcast listener on host socket
     const hostReceivedUpdate = new Promise<MissionRoom>((resolve) => {
@@ -89,7 +89,7 @@ describe('Real-Time Socket.IO Mission Planning Integration Tests (Phase 2)', () 
     const selectRes = await new Promise<any>((resolve) => {
       scienceSocket.emit(
         'scenario:select',
-        { roomCode, scenarioId: targetScenario.id, baseRevision: currentRevision },
+        { roomCode, scenarioId: targetScenario.id, baseRevision: currentPlanningRev },
         (res: any) => resolve(res)
       );
     });
@@ -100,7 +100,7 @@ describe('Real-Time Socket.IO Mission Planning Integration Tests (Phase 2)', () 
     // Host also receives the broadcast
     const broadcastRoom = await hostReceivedUpdate;
     expect(broadcastRoom.scenarioId).toBe(targetScenario.id);
-    expect(broadcastRoom.revision).toBe(currentRevision + 1);
+    expect(broadcastRoom.planningRevision).toBe(currentPlanningRev + 1);
   });
 
   it('synchronizes spacecraft design update from SYSTEMS_ENGINEER and resets crew readiness', async () => {
@@ -150,7 +150,7 @@ describe('Real-Time Socket.IO Mission Planning Integration Tests (Phase 2)', () 
         {
           roomCode: testCode,
           design: { name: 'Enterprise NX', selectedComponentIds: newComponentIds },
-          baseRevision: readySciRes.data.room.revision
+          baseRevision: readySciRes.data.room.planningRevision
         },
         resolve
       );
@@ -222,25 +222,25 @@ describe('Real-Time Socket.IO Mission Planning Integration Tests (Phase 2)', () 
       sSystems.emit('room:join', { roomCode: code, name: 'Engineer Stale', role: 'SYSTEMS_ENGINEER' }, resolve);
     });
 
-    const initialRev = joinRes.data.room.revision;
+    const initialPlanRev = joinRes.data.room.planningRevision;
 
-    // Host updates scenario, advancing room revision
+    // Host updates scenario, advancing room planning revision from 1 to 2
     await new Promise<any>((resolve) => {
       sHost.emit(
         'scenario:select',
-        { roomCode: code, scenarioId: MISSION_SCENARIOS[1].id, baseRevision: initialRev },
+        { roomCode: code, scenarioId: MISSION_SCENARIOS[1].id, baseRevision: initialPlanRev },
         resolve
       );
     });
 
-    // Systems Engineer tries to update design using OLD initialRev
+    // Systems Engineer tries to update design using OLD initialPlanRev
     const conflictRes = await new Promise<any>((resolve) => {
       sSystems.emit(
         'design:update',
         {
           roomCode: code,
           design: { name: 'Outdated Design', selectedComponentIds: ['bus-smallsat-standard'] },
-          baseRevision: initialRev // Stale!
+          baseRevision: initialPlanRev // Stale revision 1!
         },
         resolve
       );
@@ -249,7 +249,7 @@ describe('Real-Time Socket.IO Mission Planning Integration Tests (Phase 2)', () 
     expect(conflictRes.success).toBe(false);
     expect(conflictRes.error.code).toBe('REVISION_CONFLICT');
     expect(conflictRes.data.room).toBeDefined();
-    expect(conflictRes.data.room.revision).toBeGreaterThan(initialRev);
+    expect(conflictRes.data.room.planningRevision).toBeGreaterThan(initialPlanRev);
     expect(conflictRes.data.room.scenarioId).toBe(MISSION_SCENARIOS[1].id);
 
     sHost.disconnect();
@@ -293,5 +293,119 @@ describe('Real-Time Socket.IO Mission Planning Integration Tests (Phase 2)', () 
 
     sHostA.disconnect();
     sHostB.disconnect();
+  });
+
+  it('stale socket loses authorization after reconnection via Socket B', async () => {
+    // 1. Connect Socket A and create room
+    const socketA = await createSocket();
+    const createRes = await new Promise<any>((resolve) => {
+      socketA.emit('room:create', { hostName: 'Original Socket Host', roomName: 'Stale Test' }, resolve);
+    });
+    expect(createRes.success).toBe(true);
+    const roomCode = createRes.data.room.code;
+    const memberId = createRes.data.session.memberId;
+    const resumeToken = createRes.data.session.resumeToken;
+
+    // 2. Connect Socket B and reconnect using resume token
+    const socketB = await createSocket();
+    const reconnectRes = await new Promise<any>((resolve) => {
+      socketB.emit('room:reconnect', { roomCode, memberId, resumeToken }, resolve);
+    });
+    expect(reconnectRes.success).toBe(true);
+
+    // 3. Confirm Socket B can access and update planning state
+    const socketBPlanRes = await new Promise<any>((resolve) => {
+      socketB.emit('plan:get', { roomCode }, resolve);
+    });
+    expect(socketBPlanRes.success).toBe(true);
+    expect(socketBPlanRes.data.room.code).toBe(roomCode);
+
+    // 4. Confirm Socket A cannot access planning state and receives UNAUTHORIZED
+    const socketAPlanRes = await new Promise<any>((resolve) => {
+      socketA.emit('plan:get', { roomCode }, resolve);
+    });
+    expect(socketAPlanRes.success).toBe(false);
+    expect(socketAPlanRes.error.code).toBe('UNAUTHORIZED');
+
+    // Confirm Socket A cannot update scenario
+    const socketAUpdateRes = await new Promise<any>((resolve) => {
+      socketA.emit(
+        'scenario:select',
+        { roomCode, scenarioId: MISSION_SCENARIOS[1].id, baseRevision: 1 },
+        resolve
+      );
+    });
+    expect(socketAUpdateRes.success).toBe(false);
+    expect(socketAUpdateRes.error.code).toBe('UNAUTHORIZED');
+
+    socketA.disconnect();
+    socketB.disconnect();
+  });
+
+  it('rejects missing, negative, and non-integer revisions with VALIDATION_ERROR', async () => {
+    const sClient = await createSocket();
+    const createRes = await new Promise<any>((resolve) => {
+      sClient.emit('room:create', { hostName: 'Rev Tester', roomName: 'Zod Rev Test' }, resolve);
+    });
+    const code = createRes.data.room.code;
+
+    // Missing baseRevision
+    const missingRevRes = await new Promise<any>((resolve) => {
+      sClient.emit('scenario:select', { roomCode: code, scenarioId: MISSION_SCENARIOS[1].id }, resolve);
+    });
+    expect(missingRevRes.success).toBe(false);
+    expect(missingRevRes.error.code).toBe('VALIDATION_ERROR');
+
+    // Negative baseRevision
+    const negRevRes = await new Promise<any>((resolve) => {
+      sClient.emit('scenario:select', { roomCode: code, scenarioId: MISSION_SCENARIOS[1].id, baseRevision: -1 }, resolve);
+    });
+    expect(negRevRes.success).toBe(false);
+    expect(negRevRes.error.code).toBe('VALIDATION_ERROR');
+
+    // Non-integer baseRevision
+    const floatRevRes = await new Promise<any>((resolve) => {
+      sClient.emit('scenario:select', { roomCode: code, scenarioId: MISSION_SCENARIOS[1].id, baseRevision: 1.5 }, resolve);
+    });
+    expect(floatRevRes.success).toBe(false);
+    expect(floatRevRes.error.code).toBe('VALIDATION_ERROR');
+
+    sClient.disconnect();
+  });
+
+  it('returns safe authoritative snapshot when unauthorized update is rejected', async () => {
+    const sHost = await createSocket();
+    const sScience = await createSocket();
+
+    const createRes = await new Promise<any>((resolve) => {
+      sHost.emit('room:create', { hostName: 'Host Flight', roomName: 'Rollback Test' }, resolve);
+    });
+    const code = createRes.data.room.code;
+
+    const joinRes = await new Promise<any>((resolve) => {
+      sScience.emit('room:join', { roomCode: code, name: 'Science Officer', role: 'SCIENCE_LEAD' }, resolve);
+    });
+
+    // Science attempts unauthorized spacecraft design update
+    const rejectedRes = await new Promise<any>((resolve) => {
+      sScience.emit(
+        'design:update',
+        {
+          roomCode: code,
+          design: { name: 'Optimistic Unauthorized Name', selectedComponentIds: ['bus-smallsat-standard'] },
+          baseRevision: joinRes.data.room.planningRevision
+        },
+        resolve
+      );
+    });
+
+    expect(rejectedRes.success).toBe(false);
+    expect(rejectedRes.error.code).toBe('FORBIDDEN');
+    // Authoritative room snapshot is provided for client state rollback
+    expect(rejectedRes.data.room).toBeDefined();
+    expect(rejectedRes.data.room.design.name).not.toBe('Optimistic Unauthorized Name');
+
+    sHost.disconnect();
+    sScience.disconnect();
   });
 });

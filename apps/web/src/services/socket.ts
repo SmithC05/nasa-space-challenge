@@ -180,7 +180,7 @@ export function getMissionPlan(
 export function selectScenarioSocket(
   roomCode: string,
   scenarioId: string,
-  baseRevision?: number,
+  baseRevision: number,
   callback?: (res: SocketResponse<{ room: MissionRoom }>) => void
 ) {
   getSocket().emit('scenario:select', { roomCode, scenarioId, baseRevision }, callback);
@@ -189,7 +189,7 @@ export function selectScenarioSocket(
 export function updateDesignSocket(
   roomCode: string,
   design: SpacecraftDesign,
-  baseRevision?: number,
+  baseRevision: number,
   callback?: (res: SocketResponse<{ room: MissionRoom }>) => void
 ) {
   getSocket().emit('design:update', { roomCode, design, baseRevision }, callback);
@@ -198,7 +198,7 @@ export function updateDesignSocket(
 export function configureLaunchSocket(
   roomCode: string,
   launchConfig: LaunchConfiguration,
-  baseRevision?: number,
+  baseRevision: number,
   callback?: (res: SocketResponse<{ room: MissionRoom }>) => void
 ) {
   getSocket().emit('launch:configure', { roomCode, launchConfig, baseRevision }, callback);

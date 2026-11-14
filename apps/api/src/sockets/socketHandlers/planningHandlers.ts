@@ -11,42 +11,54 @@ import { normalizeRoomCode } from '../../services/roomCodeService';
 
 /**
  * Resolves the authenticated member ID and room code for a socket connection.
+ * Strictly verifies that the member is connected and that socket.id matches
+ * the member's currently active socketId, rejecting superseded/stale sockets.
  */
 function resolveSocketMember(socket: Socket, roomService: RoomService, targetRoomCode: string): {
   memberId: string;
   roomCode: string;
 } | null {
   const normCode = normalizeRoomCode(targetRoomCode);
-
-  // Check socket session data
-  if (socket.data?.authenticated && socket.data.memberId && normalizeRoomCode(socket.data.roomCode) === normCode) {
-    return {
-      memberId: socket.data.memberId,
-      roomCode: normCode
-    };
-  }
-
-  // Fallback: look up member by socket.id in room
   const rawRoom = roomService.getRawRoom(normCode);
-  if (rawRoom) {
-    const member = rawRoom.members.find((m) => m.socketId === socket.id && m.connected);
-    if (member) {
-      socket.data = {
-        memberId: member.id,
-        roomCode: normCode,
-        name: member.name,
-        role: member.role,
-        isHost: member.isHost,
-        authenticated: true
-      };
-      return {
-        memberId: member.id,
-        roomCode: normCode
-      };
+  if (!rawRoom) return null;
+
+  // The member must have established identity on this socket (socket.data.memberId)
+  // or exist in the room with socketId matching this socket.id
+  const targetMemberId = socket.data?.memberId;
+  const member = targetMemberId
+    ? rawRoom.members.find((m) => m.id === targetMemberId)
+    : rawRoom.members.find((m) => m.socketId === socket.id);
+
+  if (!member) return null;
+
+  // Crucial: Must be actively connected AND socket.id must match the active member.socketId
+  if (!member.connected || member.socketId !== socket.id) {
+    if (socket.data) {
+      socket.data.authenticated = false;
+      socket.data.stale = true;
     }
+    return null;
   }
 
-  return null;
+  // Ensure socket room context matches target room
+  if (socket.data?.roomCode && normalizeRoomCode(socket.data.roomCode) !== normCode) {
+    return null;
+  }
+
+  // Keep socket data synchronized
+  socket.data = {
+    memberId: member.id,
+    roomCode: normCode,
+    name: member.name,
+    role: member.role,
+    isHost: member.isHost,
+    authenticated: true
+  };
+
+  return {
+    memberId: member.id,
+    roomCode: normCode
+  };
 }
 
 export function registerPlanningHandlers(io: Server, socket: Socket, roomService: RoomService) {
@@ -140,17 +152,18 @@ export function registerPlanningHandlers(io: Server, socket: Socket, roomService
     } catch (err: any) {
       const errorCode = err.code || 'INTERNAL_ERROR';
       const errorMessage = err.message || 'Failed to update scenario';
+      const safeRoom = err.currentSnapshot || (rawPayload as any)?.roomCode ? roomService.getRoomSnapshot((rawPayload as any).roomCode) || undefined : undefined;
 
       socket.emit('plan:rejected', {
         code: errorCode,
         message: errorMessage,
-        room: err.currentSnapshot
+        room: safeRoom
       });
 
       callback?.({
         success: false,
         error: { code: errorCode, message: errorMessage },
-        data: err.currentSnapshot ? { room: err.currentSnapshot } : undefined
+        data: safeRoom ? { room: safeRoom } : undefined
       });
     }
   });
@@ -173,7 +186,7 @@ export function registerPlanningHandlers(io: Server, socket: Socket, roomService
       const { roomCode, design, baseRevision, requestId } = parsed.data;
       const auth = resolveSocketMember(socket, roomService, roomCode);
       if (!auth) {
-        const errorMsg = 'You are not authenticated in this mission room.';
+        const errorMsg = 'Session has been resumed on another connection or socket is no longer active.';
         socket.emit('plan:rejected', { code: 'UNAUTHORIZED', message: errorMsg });
         return callback?.({
           success: false,
@@ -204,17 +217,18 @@ export function registerPlanningHandlers(io: Server, socket: Socket, roomService
     } catch (err: any) {
       const errorCode = err.code || 'INTERNAL_ERROR';
       const errorMessage = err.message || 'Failed to update spacecraft design';
+      const safeRoom = err.currentSnapshot || (rawPayload as any)?.roomCode ? roomService.getRoomSnapshot((rawPayload as any).roomCode) || undefined : undefined;
 
       socket.emit('plan:rejected', {
         code: errorCode,
         message: errorMessage,
-        room: err.currentSnapshot
+        room: safeRoom
       });
 
       callback?.({
         success: false,
         error: { code: errorCode, message: errorMessage },
-        data: err.currentSnapshot ? { room: err.currentSnapshot } : undefined
+        data: safeRoom ? { room: safeRoom } : undefined
       });
     }
   });
@@ -237,7 +251,7 @@ export function registerPlanningHandlers(io: Server, socket: Socket, roomService
       const { roomCode, launchConfig, baseRevision, requestId } = parsed.data;
       const auth = resolveSocketMember(socket, roomService, roomCode);
       if (!auth) {
-        const errorMsg = 'You are not authenticated in this mission room.';
+        const errorMsg = 'Session has been resumed on another connection or socket is no longer active.';
         socket.emit('plan:rejected', { code: 'UNAUTHORIZED', message: errorMsg });
         return callback?.({
           success: false,
@@ -268,17 +282,18 @@ export function registerPlanningHandlers(io: Server, socket: Socket, roomService
     } catch (err: any) {
       const errorCode = err.code || 'INTERNAL_ERROR';
       const errorMessage = err.message || 'Failed to update launch configuration';
+      const safeRoom = err.currentSnapshot || (rawPayload as any)?.roomCode ? roomService.getRoomSnapshot((rawPayload as any).roomCode) || undefined : undefined;
 
       socket.emit('plan:rejected', {
         code: errorCode,
         message: errorMessage,
-        room: err.currentSnapshot
+        room: safeRoom
       });
 
       callback?.({
         success: false,
         error: { code: errorCode, message: errorMessage },
-        data: err.currentSnapshot ? { room: err.currentSnapshot } : undefined
+        data: safeRoom ? { room: safeRoom } : undefined
       });
     }
   });

@@ -65,6 +65,80 @@ export function resolveLaunchVehicle(vehicleId?: string | null): LaunchVehicle {
 }
 
 /**
+ * Strictly validates that the spacecraft has exactly one bus chassis,
+ * that the bus ID refers to an actual catalog component of category 'bus',
+ * and that explicitBusId (if provided) matches the selected bus.
+ */
+export function validateAndResolveBus(
+  componentIds: string[],
+  explicitBusId?: string
+): { bus: ComponentDefinition; validComponents: ComponentDefinition[]; finalComponentIds: string[] } {
+  // 1. If explicitBusId is provided, validate it strictly against catalog
+  if (explicitBusId !== undefined) {
+    const busDef = SPACECRAFT_COMPONENTS.find((c) => c.id === explicitBusId && c.category === 'bus');
+    if (!busDef) {
+      throw {
+        code: 'INVALID_BUS_ID',
+        message: `Bus component with ID '${explicitBusId}' does not exist or is not a bus chassis.`
+      };
+    }
+    if (!componentIds.includes(explicitBusId)) {
+      throw {
+        code: 'BUS_NOT_SELECTED',
+        message: `Bus '${explicitBusId}' must be included in selectedComponentIds.`
+      };
+    }
+  }
+
+  // 2. Validate all component IDs exist in catalog
+  const unknownId = componentIds.find((id) => !SPACECRAFT_COMPONENTS.some((c) => c.id === id));
+  if (unknownId) {
+    throw {
+      code: 'INVALID_COMPONENT',
+      message: `Component with ID '${unknownId}' does not exist in catalog.`
+    };
+  }
+
+  // 3. Find all bus components in selection
+  const busComponents = componentIds
+    .map((id) => SPACECRAFT_COMPONENTS.find((c) => c.id === id)!)
+    .filter((c) => c.category === 'bus');
+
+  if (busComponents.length === 0) {
+    throw {
+      code: 'MISSING_BUS',
+      message: 'Spacecraft configuration must include exactly one bus chassis.'
+    };
+  }
+
+  if (busComponents.length > 1) {
+    throw {
+      code: 'MULTIPLE_BUSES',
+      message: `Spacecraft configuration contains ${busComponents.length} bus chassis components. Exactly one bus is permitted.`
+    };
+  }
+
+  const selectedBus = busComponents[0];
+
+  if (explicitBusId && explicitBusId !== selectedBus.id) {
+    throw {
+      code: 'BUS_MISMATCH',
+      message: `Explicit busId '${explicitBusId}' does not match the bus in selectedComponentIds ('${selectedBus.id}').`
+    };
+  }
+
+  // Deduplicate while preserving ordering
+  const finalComponentIds = Array.from(new Set(componentIds));
+  const validComponents = finalComponentIds.map((id) => SPACECRAFT_COMPONENTS.find((c) => c.id === id)!);
+
+  return {
+    bus: selectedBus,
+    validComponents,
+    finalComponentIds
+  };
+}
+
+/**
  * Creates an authoritative SpacecraftDesign instance based on scenario, orbit, and components.
  */
 export function buildAuthoritativeDesign(
@@ -74,30 +148,13 @@ export function buildAuthoritativeDesign(
   designName?: string,
   preferredBusId?: string
 ): SpacecraftDesign {
-  // Filter valid components from game data
-  const validComponents: ComponentDefinition[] = componentIds
-    .map((id) => SPACECRAFT_COMPONENTS.find((c) => c.id === id))
-    .filter((c): c is ComponentDefinition => c !== undefined);
+  // Validate exactly one bus chassis and resolve components
+  const { bus, validComponents, finalComponentIds } = validateAndResolveBus(
+    componentIds,
+    preferredBusId
+  );
 
-  // Ensure exactly one bus
-  let busComp = validComponents.find((c) => c.category === 'bus');
-  if (preferredBusId) {
-    const requestedBus = SPACECRAFT_COMPONENTS.find(
-      (c) => c.id === preferredBusId && c.category === 'bus'
-    );
-    if (requestedBus) {
-      busComp = requestedBus;
-    }
-  }
-
-  if (!busComp) {
-    busComp = SPACECRAFT_COMPONENTS.find((c) => c.category === 'bus')!;
-    validComponents.unshift(busComp);
-  }
-
-  const finalComponentIds = Array.from(new Set(validComponents.map((c) => c.id)));
-
-  // Authoritative physics calculations via simulation engine
+  // Authoritative physics calculations via simulation engine using the exact same components
   const resources = calculateSpacecraftResources(validComponents, scenario, orbit);
   const validation = validateSpacecraftDesign(validComponents, resources, scenario);
 
@@ -105,7 +162,7 @@ export function buildAuthoritativeDesign(
     id: `design-${scenario.id}`,
     name: designName?.trim() || `${scenario.code} Orbiter Alpha`,
     scenarioId: scenario.id,
-    busId: busComp.id,
+    busId: bus.id,
     selectedComponentIds: finalComponentIds,
     resources,
     validation,

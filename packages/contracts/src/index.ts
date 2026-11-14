@@ -337,6 +337,7 @@ export const MissionRoomSchema = z.object({
   status: RoomStatusSchema,
   maxPlayers: z.number().default(4),
   revision: z.number().default(1),
+  planningRevision: z.number().default(1),
   lastUpdatedBy: z
     .object({
       memberId: z.string(),
@@ -422,7 +423,10 @@ export type GetPlanInput = z.infer<typeof GetPlanInputSchema>;
 export const UpdateScenarioInputSchema = z.object({
   roomCode: z.string().trim().min(1, 'Room code is required'),
   scenarioId: z.string().trim().min(1, 'Scenario ID is required'),
-  baseRevision: z.number().int().nonnegative('Base revision must be non-negative').optional(),
+  baseRevision: z
+    .number({ required_error: 'baseRevision is required' })
+    .int('Base revision must be an integer')
+    .nonnegative('Base revision must be non-negative'),
   requestId: z.string().optional()
 });
 export type UpdateScenarioInput = z.infer<typeof UpdateScenarioInputSchema>;
@@ -436,7 +440,10 @@ export const PartialDesignPayloadSchema = z.object({
 export const UpdateDesignInputSchema = z.object({
   roomCode: z.string().trim().min(1, 'Room code is required'),
   design: SpacecraftDesignSchema.or(PartialDesignPayloadSchema),
-  baseRevision: z.number().int().nonnegative('Base revision must be non-negative').optional(),
+  baseRevision: z
+    .number({ required_error: 'baseRevision is required' })
+    .int('Base revision must be an integer')
+    .nonnegative('Base revision must be non-negative'),
   requestId: z.string().optional()
 });
 export type UpdateDesignInput = z.infer<typeof UpdateDesignInputSchema>;
@@ -450,7 +457,10 @@ export const PartialLaunchPayloadSchema = z.object({
 export const UpdateLaunchInputSchema = z.object({
   roomCode: z.string().trim().min(1, 'Room code is required'),
   launchConfig: LaunchConfigurationSchema.or(PartialLaunchPayloadSchema),
-  baseRevision: z.number().int().nonnegative('Base revision must be non-negative').optional(),
+  baseRevision: z
+    .number({ required_error: 'baseRevision is required' })
+    .int('Base revision must be an integer')
+    .nonnegative('Base revision must be non-negative'),
   requestId: z.string().optional()
 });
 export type UpdateLaunchInput = z.infer<typeof UpdateLaunchInputSchema>;

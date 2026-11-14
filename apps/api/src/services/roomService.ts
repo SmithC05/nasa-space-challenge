@@ -59,6 +59,7 @@ export interface InternalRoomState {
   status: RoomStatus;
   maxPlayers: number;
   revision: number;
+  planningRevision: number;
   members: InternalMemberSession[];
   lastUpdatedBy?: {
     memberId: string;
@@ -150,6 +151,7 @@ export class RoomService {
       status: room.status,
       maxPlayers: room.maxPlayers,
       revision: room.revision,
+      planningRevision: room.planningRevision ?? 1,
       lastUpdatedBy: room.lastUpdatedBy,
       createdAt: room.createdAt,
       updatedAt: room.updatedAt
@@ -208,6 +210,7 @@ export class RoomService {
       status: 'LOBBY',
       maxPlayers: 4,
       revision: 1,
+      planningRevision: 1,
       members: [hostMember],
       lastUpdatedBy: {
         memberId: hostMember.id,
@@ -506,7 +509,7 @@ export class RoomService {
     rawCode: string,
     memberId: string,
     scenarioId: string,
-    baseRevision?: number,
+    baseRevision: number,
     requestId?: string
   ): Promise<{ room: MissionRoom; isMaterialChange: boolean }> {
     const code = normalizeRoomCode(rawCode);
@@ -516,22 +519,29 @@ export class RoomService {
         throw { code: 'ROOM_NOT_FOUND', message: `Room [${code}] not found.` };
       }
 
-      // Idempotency: return existing result if requestId was already processed
-      if (requestId && room.processedRequests?.has(requestId)) {
-        return { room: room.processedRequests.get(requestId)!, isMaterialChange: false };
-      }
-
-      // Centralized Role-based authorization
+      // 1. Centralized Role-based authorization evaluated FIRST before idempotency replay
       const auth = canPerformPlanningAction(room, memberId, 'SELECT_SCENARIO');
       if (!auth.allowed) {
-        throw { code: 'FORBIDDEN', message: auth.reason || 'Not authorized to select mission scenario.' };
+        throw {
+          code: 'FORBIDDEN',
+          message: auth.reason || 'Not authorized to select mission scenario.',
+          currentSnapshot: this.getRoomSnapshot(code)
+        };
       }
 
-      // Monotonically increasing revision control
-      if (baseRevision !== undefined && baseRevision !== room.revision) {
+      // 2. Idempotency replay with composite key scoped to member and action
+      const idempotencyKey = `${code}:${memberId}:SELECT_SCENARIO:${requestId}`;
+      if (requestId && room.processedRequests?.has(idempotencyKey)) {
+        return { room: room.processedRequests.get(idempotencyKey)!, isMaterialChange: false };
+      }
+
+      // 3. Mandatory monotonically increasing revision check
+      const currentPlanningRev = room.planningRevision ?? 1;
+      const isValidRev = baseRevision === currentPlanningRev;
+      if (!isValidRev) {
         throw {
           code: 'REVISION_CONFLICT',
-          message: `Planning state has changed (server revision: ${room.revision}, your revision: ${baseRevision}). Reconciled with latest room state.`,
+          message: `Planning state has changed (server planning revision: ${currentPlanningRev}, your revision: ${baseRevision}). Reconciled with latest room state.`,
           currentSnapshot: this.getRoomSnapshot(code)
         };
       }
@@ -574,6 +584,7 @@ export class RoomService {
         m.isReady = false;
       });
 
+      room.planningRevision = currentPlanningRev + 1;
       room.revision += 1;
       room.updatedAt = now;
       room.lastUpdatedBy = {
@@ -586,7 +597,11 @@ export class RoomService {
       const snapshot = this.getRoomSnapshot(code)!;
       if (requestId) {
         if (!room.processedRequests) room.processedRequests = new Map();
-        room.processedRequests.set(requestId, snapshot);
+        if (room.processedRequests.size >= 50) {
+          const firstKey = room.processedRequests.keys().next().value;
+          if (firstKey) room.processedRequests.delete(firstKey);
+        }
+        room.processedRequests.set(idempotencyKey, snapshot);
       }
 
       return { room: snapshot, isMaterialChange: true };
@@ -604,7 +619,7 @@ export class RoomService {
       busId?: string;
       selectedComponentIds: string[];
     },
-    baseRevision?: number,
+    baseRevision: number,
     requestId?: string
   ): Promise<{ room: MissionRoom; isMaterialChange: boolean }> {
     const code = normalizeRoomCode(rawCode);
@@ -614,19 +629,29 @@ export class RoomService {
         throw { code: 'ROOM_NOT_FOUND', message: `Room [${code}] not found.` };
       }
 
-      if (requestId && room.processedRequests?.has(requestId)) {
-        return { room: room.processedRequests.get(requestId)!, isMaterialChange: false };
-      }
-
+      // 1. Centralized Role-based authorization evaluated FIRST before idempotency replay
       const auth = canPerformPlanningAction(room, memberId, 'UPDATE_DESIGN');
       if (!auth.allowed) {
-        throw { code: 'FORBIDDEN', message: auth.reason || 'Not authorized to update spacecraft design.' };
+        throw {
+          code: 'FORBIDDEN',
+          message: auth.reason || 'Not authorized to update spacecraft design.',
+          currentSnapshot: this.getRoomSnapshot(code)
+        };
       }
 
-      if (baseRevision !== undefined && baseRevision !== room.revision) {
+      // 2. Idempotency replay with composite key
+      const idempotencyKey = `${code}:${memberId}:UPDATE_DESIGN:${requestId}`;
+      if (requestId && room.processedRequests?.has(idempotencyKey)) {
+        return { room: room.processedRequests.get(idempotencyKey)!, isMaterialChange: false };
+      }
+
+      // 3. Mandatory monotonically increasing revision check
+      const currentPlanningRev = room.planningRevision ?? 1;
+      const isValidRev = baseRevision === currentPlanningRev;
+      if (!isValidRev) {
         throw {
           code: 'REVISION_CONFLICT',
-          message: `Planning state has changed (server revision: ${room.revision}, your revision: ${baseRevision}). Reconciled with latest room state.`,
+          message: `Planning state has changed (server planning revision: ${currentPlanningRev}, your revision: ${baseRevision}). Reconciled with latest room state.`,
           currentSnapshot: this.getRoomSnapshot(code)
         };
       }
@@ -634,13 +659,6 @@ export class RoomService {
       const componentIds = designPayload.selectedComponentIds;
       if (!componentIds || componentIds.length === 0) {
         throw { code: 'INVALID_DESIGN', message: 'At least one component must be selected for the spacecraft.' };
-      }
-
-      // Verify all component IDs exist in game data catalog
-      for (const id of componentIds) {
-        if (!SPACECRAFT_COMPONENTS.some((c) => c.id === id)) {
-          throw { code: 'INVALID_COMPONENT', message: `Component with ID '${id}' does not exist in catalog.` };
-        }
       }
 
       // Check material change
@@ -660,13 +678,13 @@ export class RoomService {
       const currentOrbit = resolveOrbit(room.launchConfig?.orbitId);
       const currentVehicle = resolveLaunchVehicle(room.launchConfig?.vehicleId);
 
-      // Rebuild authoritative design
+      // Rebuild authoritative design with strict single-bus chassis validation
       room.design = buildAuthoritativeDesign(
         currentScenario,
         currentOrbit,
         componentIds,
         designPayload.name || room.design.name,
-        designPayload.busId || room.design.busId
+        designPayload.busId
       );
 
       // Recalculate launch configuration with updated mass
@@ -683,6 +701,7 @@ export class RoomService {
         m.isReady = false;
       });
 
+      room.planningRevision = currentPlanningRev + 1;
       room.revision += 1;
       room.updatedAt = now;
       room.lastUpdatedBy = {
@@ -695,7 +714,11 @@ export class RoomService {
       const snapshot = this.getRoomSnapshot(code)!;
       if (requestId) {
         if (!room.processedRequests) room.processedRequests = new Map();
-        room.processedRequests.set(requestId, snapshot);
+        if (room.processedRequests.size >= 50) {
+          const firstKey = room.processedRequests.keys().next().value;
+          if (firstKey) room.processedRequests.delete(firstKey);
+        }
+        room.processedRequests.set(idempotencyKey, snapshot);
       }
 
       return { room: snapshot, isMaterialChange: true };
@@ -713,7 +736,7 @@ export class RoomService {
       orbitId: string;
       launchSite?: string;
     },
-    baseRevision?: number,
+    baseRevision: number,
     requestId?: string
   ): Promise<{ room: MissionRoom; isMaterialChange: boolean }> {
     const code = normalizeRoomCode(rawCode);
@@ -723,19 +746,29 @@ export class RoomService {
         throw { code: 'ROOM_NOT_FOUND', message: `Room [${code}] not found.` };
       }
 
-      if (requestId && room.processedRequests?.has(requestId)) {
-        return { room: room.processedRequests.get(requestId)!, isMaterialChange: false };
-      }
-
+      // 1. Centralized Role-based authorization evaluated FIRST before idempotency replay
       const auth = canPerformPlanningAction(room, memberId, 'UPDATE_LAUNCH');
       if (!auth.allowed) {
-        throw { code: 'FORBIDDEN', message: auth.reason || 'Not authorized to update launch configuration.' };
+        throw {
+          code: 'FORBIDDEN',
+          message: auth.reason || 'Not authorized to update launch configuration.',
+          currentSnapshot: this.getRoomSnapshot(code)
+        };
       }
 
-      if (baseRevision !== undefined && baseRevision !== room.revision) {
+      // 2. Idempotency replay with composite key
+      const idempotencyKey = `${code}:${memberId}:UPDATE_LAUNCH:${requestId}`;
+      if (requestId && room.processedRequests?.has(idempotencyKey)) {
+        return { room: room.processedRequests.get(idempotencyKey)!, isMaterialChange: false };
+      }
+
+      // 3. Mandatory monotonically increasing revision check
+      const currentPlanningRev = room.planningRevision ?? 1;
+      const isValidRev = baseRevision === currentPlanningRev;
+      if (!isValidRev) {
         throw {
           code: 'REVISION_CONFLICT',
-          message: `Planning state has changed (server revision: ${room.revision}, your revision: ${baseRevision}). Reconciled with latest room state.`,
+          message: `Planning state has changed (server planning revision: ${currentPlanningRev}, your revision: ${baseRevision}). Reconciled with latest room state.`,
           currentSnapshot: this.getRoomSnapshot(code)
         };
       }
@@ -791,6 +824,7 @@ export class RoomService {
         m.isReady = false;
       });
 
+      room.planningRevision = currentPlanningRev + 1;
       room.revision += 1;
       room.updatedAt = now;
       room.lastUpdatedBy = {
@@ -803,7 +837,11 @@ export class RoomService {
       const snapshot = this.getRoomSnapshot(code)!;
       if (requestId) {
         if (!room.processedRequests) room.processedRequests = new Map();
-        room.processedRequests.set(requestId, snapshot);
+        if (room.processedRequests.size >= 50) {
+          const firstKey = room.processedRequests.keys().next().value;
+          if (firstKey) room.processedRequests.delete(firstKey);
+        }
+        room.processedRequests.set(idempotencyKey, snapshot);
       }
 
       return { room: snapshot, isMaterialChange: true };

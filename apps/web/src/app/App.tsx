@@ -37,11 +37,18 @@ export function App() {
       setMissionReport(report);
     });
 
+    socket.on('plan:rejected', (data: { code: string; message: string; room?: any }) => {
+      if (data.room) {
+        setActiveRoom(data.room);
+      }
+    });
+
     return () => {
       socket.off('room:updated');
       socket.off('simulation:tick');
       socket.off('chat:message');
       socket.off('mission:completed');
+      socket.off('plan:rejected');
     };
   }, [setActiveRoom, setSimulationState, addChatMessage, setMissionReport]);
 

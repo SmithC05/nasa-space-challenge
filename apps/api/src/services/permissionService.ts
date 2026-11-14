@@ -94,7 +94,9 @@ export function canChangeReadyState(
   targetMemberId: string
 ): boolean {
   if (!room || !requestingMemberId) return false;
-  if (room.status !== 'LOBBY') return false;
+  // Permit readiness updates during valid mission planning and setup stages
+  const validReadinessStatuses = ['LOBBY', 'MISSION_SETUP', 'DESIGNING', 'LAUNCH_READY'];
+  if (!validReadinessStatuses.includes(room.status)) return false;
   return requestingMemberId === targetMemberId;
 }
 
