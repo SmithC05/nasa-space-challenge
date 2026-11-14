@@ -21,6 +21,7 @@ import {
 import { getDatabase, missionReportsTable } from '@orbital/database';
 import { roomService } from '../services/roomService';
 import { registerRoomHandlers } from './socketHandlers/roomHandlers';
+import { registerPlanningHandlers } from './socketHandlers/planningHandlers';
 
 // In-memory simulation stores
 const simulationStates = new Map<string, MissionSimulationState>();
@@ -31,59 +32,8 @@ export function setupMissionSockets(io: Server) {
     // Register Phase 1 Room Management & Player Identity Handlers
     registerRoomHandlers(io, socket, roomService);
 
-    // ----------------------------------------------------
-    // SCENARIO SELECTION
-    // ----------------------------------------------------
-    socket.on('scenario:select', ({ roomCode, scenarioId }) => {
-      const code = (roomCode || '').toUpperCase();
-      const rawRoom = roomService.getRawRoom(code);
-      if (!rawRoom) return;
-
-      rawRoom.scenarioId = scenarioId;
-      rawRoom.revision += 1;
-      rawRoom.updatedAt = new Date().toISOString();
-
-      const snapshot = roomService.getRoomSnapshot(code);
-      if (snapshot) {
-        io.to(code).emit('room:updated', snapshot);
-      }
-    });
-
-    // ----------------------------------------------------
-    // DESIGN UPDATE
-    // ----------------------------------------------------
-    socket.on('design:update', ({ roomCode, design }) => {
-      const code = (roomCode || '').toUpperCase();
-      const rawRoom = roomService.getRawRoom(code);
-      if (!rawRoom) return;
-
-      rawRoom.revision += 1;
-      rawRoom.updatedAt = new Date().toISOString();
-
-      const snapshot = roomService.getRoomSnapshot(code);
-      if (snapshot) {
-        snapshot.design = design;
-        io.to(code).emit('room:updated', snapshot);
-      }
-    });
-
-    // ----------------------------------------------------
-    // LAUNCH CONFIGURATION
-    // ----------------------------------------------------
-    socket.on('launch:configure', ({ roomCode, launchConfig }) => {
-      const code = (roomCode || '').toUpperCase();
-      const rawRoom = roomService.getRawRoom(code);
-      if (!rawRoom) return;
-
-      rawRoom.revision += 1;
-      rawRoom.updatedAt = new Date().toISOString();
-
-      const snapshot = roomService.getRoomSnapshot(code);
-      if (snapshot) {
-        snapshot.launchConfig = launchConfig;
-        io.to(code).emit('room:updated', snapshot);
-      }
-    });
+    // Register Phase 2 Collaborative Mission Planning Handlers
+    registerPlanningHandlers(io, socket, roomService);
 
     // ----------------------------------------------------
     // LAUNCH START & TELEMETRY TICK LOOP
