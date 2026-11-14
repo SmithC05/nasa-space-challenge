@@ -6,6 +6,7 @@ import { LaunchVehicleComparisonModal } from './LaunchVehicleComparisonModal';
 import { FlightIntegrationChecklist } from './FlightIntegrationChecklist';
 import { LaunchEducationalGuide } from './LaunchEducationalGuide';
 import { LaunchConfigurationReviewModal } from './LaunchConfigurationReviewModal';
+import { CinematicLaunchSequence } from './cinematic';
 import {
   ArrowUpDown,
   BookOpen,
@@ -41,6 +42,7 @@ export function OrbitLaunchStudio() {
   const [isComparisonOpen, setIsComparisonOpen] = useState(false);
   const [isEduGuideOpen, setIsEduGuideOpen] = useState(false);
   const [isReviewOpen, setIsReviewOpen] = useState(false);
+  const [isCinematicOpen, setIsCinematicOpen] = useState(false);
 
   const selectedCategory =
     (selectedOrbit as any).category ||
@@ -52,11 +54,7 @@ export function OrbitLaunchStudio() {
     const confirmed = confirmLaunchConfiguration();
     if (!confirmed) return;
 
-    setIsLaunchingAnim(true);
-    setTimeout(() => {
-      startMissionLaunch();
-      setActiveTab('ops');
-    }, 2000);
+    setIsCinematicOpen(true);
   };
 
   const scrollToOrbit = () => {
@@ -381,6 +379,12 @@ export function OrbitLaunchStudio() {
       <LaunchEducationalGuide
         isOpen={isEduGuideOpen}
         onClose={() => setIsEduGuideOpen(false)}
+      />
+
+      {/* Phase 6: Complete Cinematic Rocket Launch & Deployment Simulator */}
+      <CinematicLaunchSequence
+        isOpen={isCinematicOpen}
+        onClose={() => setIsCinematicOpen(false)}
       />
     </div>
   );
