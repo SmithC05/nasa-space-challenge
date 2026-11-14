@@ -10,6 +10,7 @@ import {
   SocketResponse
 } from '@orbital/contracts';
 import { RoomService } from '../../services/roomService';
+import { validateActiveSocketSession } from '../socketAuth';
 
 export function registerRoomHandlers(io: Server, socket: Socket, roomService: RoomService) {
   // ----------------------------------------------------
@@ -38,7 +39,8 @@ export function registerRoomHandlers(io: Server, socket: Socket, roomService: Ro
         name: session.name,
         role: session.role,
         isHost: true,
-        authenticated: true
+        authenticated: true,
+        stale: false
       };
 
       socket.join(room.code);
@@ -86,7 +88,8 @@ export function registerRoomHandlers(io: Server, socket: Socket, roomService: Ro
         name: session.name,
         role: session.role,
         isHost: session.isHost,
-        authenticated: true
+        authenticated: true,
+        stale: false
       };
 
       socket.join(room.code);
@@ -132,6 +135,12 @@ export function registerRoomHandlers(io: Server, socket: Socket, roomService: Ro
       }
 
       const { roomCode, memberId, resumeToken } = parsed.data;
+
+      // Identify the previous socket ID before reconnecting
+      const rawRoom = roomService.getRawRoom(roomCode);
+      const existingMember = rawRoom?.members.find((m) => m.id === memberId);
+      const previousSocketId = existingMember?.socketId;
+
       const { room, session, reconnectedMember } = await roomService.reconnectRoom(
         roomCode,
         memberId,
@@ -139,16 +148,31 @@ export function registerRoomHandlers(io: Server, socket: Socket, roomService: Ro
         socket.id
       );
 
+      // Authorize new socket
       socket.data = {
         memberId: session.memberId,
         roomCode: room.code,
         name: session.name,
         role: session.role,
         isHost: session.isHost,
-        authenticated: true
+        authenticated: true,
+        stale: false
       };
 
       socket.join(room.code);
+
+      // Revoke previous socket immediately if different
+      if (previousSocketId && previousSocketId !== socket.id) {
+        const prevSocket = io.sockets.sockets.get(previousSocketId);
+        if (prevSocket) {
+          if (prevSocket.data) {
+            prevSocket.data.authenticated = false;
+            prevSocket.data.stale = true;
+          }
+          prevSocket.leave(room.code);
+          prevSocket.disconnect(true);
+        }
+      }
 
       callback?.({
         success: true,
@@ -191,16 +215,19 @@ export function registerRoomHandlers(io: Server, socket: Socket, roomService: Ro
       }
 
       const { roomCode, role } = parsed.data;
-      const requestingMemberId = socket.data?.memberId;
+      const session = validateActiveSocketSession(socket, roomService, roomCode);
 
-      if (!requestingMemberId || socket.data?.roomCode !== roomCode.trim().toUpperCase()) {
+      if (!session) {
         return callback?.({
           success: false,
-          error: { code: 'UNAUTHORIZED', message: 'You are not authenticated in this mission room.' }
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'You are not authenticated or your session was resumed from another connection.'
+          }
         });
       }
 
-      const { room } = roomService.setMemberRole(roomCode, requestingMemberId, role);
+      const { room } = roomService.setMemberRole(session.roomCode, session.memberId, role);
       socket.data.role = role;
 
       callback?.({ success: true, data: { room } });
@@ -233,16 +260,19 @@ export function registerRoomHandlers(io: Server, socket: Socket, roomService: Ro
       }
 
       const { roomCode, isReady } = parsed.data;
-      const requestingMemberId = socket.data?.memberId;
+      const session = validateActiveSocketSession(socket, roomService, roomCode);
 
-      if (!requestingMemberId || socket.data?.roomCode !== roomCode.trim().toUpperCase()) {
+      if (!session) {
         return callback?.({
           success: false,
-          error: { code: 'UNAUTHORIZED', message: 'You are not authenticated in this mission room.' }
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'You are not authenticated or your session was resumed from another connection.'
+          }
         });
       }
 
-      const { room, allReady } = roomService.setMemberReady(roomCode, requestingMemberId, isReady);
+      const { room, allReady } = roomService.setMemberReady(session.roomCode, session.memberId, isReady);
 
       callback?.({ success: true, data: { room, allReady } });
       io.to(room.code).emit('room:updated', room);
@@ -274,16 +304,19 @@ export function registerRoomHandlers(io: Server, socket: Socket, roomService: Ro
       }
 
       const { roomCode } = parsed.data;
-      const requestingMemberId = socket.data?.memberId;
+      const session = validateActiveSocketSession(socket, roomService, roomCode);
 
-      if (!requestingMemberId || socket.data?.roomCode !== roomCode.trim().toUpperCase()) {
+      if (!session) {
         return callback?.({
           success: false,
-          error: { code: 'UNAUTHORIZED', message: 'Not authenticated in this room.' }
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'You are not authenticated or your session was resumed from another connection.'
+          }
         });
       }
 
-      const { room } = roomService.advanceLobby(roomCode, requestingMemberId);
+      const { room } = roomService.advanceLobby(session.roomCode, session.memberId);
 
       callback?.({ success: true, data: { room } });
       io.to(room.code).emit('room:updated', room);
@@ -312,15 +345,21 @@ export function registerRoomHandlers(io: Server, socket: Socket, roomService: Ro
       }
 
       const { roomCode } = parsed.data;
-      const memberId = socket.data?.memberId;
+      const session = validateActiveSocketSession(socket, roomService, roomCode);
 
-      if (!memberId) {
-        return callback?.({ success: true });
+      if (!session) {
+        return callback?.({
+          success: false,
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'You are not authenticated or your session was resumed from another connection.'
+          }
+        });
       }
 
       const { room, isClosed } = roomService.leaveRoom(
-        roomCode,
-        memberId,
+        session.roomCode,
+        session.memberId,
         (code, newHost, prevHostId) => {
           io.to(code).emit('room:hostChanged', {
             previousHostId: prevHostId,
@@ -330,8 +369,8 @@ export function registerRoomHandlers(io: Server, socket: Socket, roomService: Ro
         }
       );
 
-      socket.leave(roomCode.trim().toUpperCase());
-      socket.data = {};
+      socket.leave(session.roomCode);
+      socket.data = { authenticated: false, stale: true };
 
       callback?.({ success: true, data: { message: 'Left room successfully' } });
 
@@ -350,7 +389,24 @@ export function registerRoomHandlers(io: Server, socket: Socket, roomService: Ro
   // 8. DISCONNECT Preserving Grace Period
   // ----------------------------------------------------
   socket.on('disconnect', () => {
-    roomService.handleSocketDisconnect(
+    // If this socket was marked stale, or is no longer the active socket for its member,
+    // do not trigger disconnect grace period or presence broadcasts.
+    if (socket.data?.stale) {
+      return;
+    }
+
+    const roomCode = socket.data?.roomCode;
+    const memberId = socket.data?.memberId;
+
+    if (roomCode && memberId) {
+      const rawRoom = roomService.getRawRoom(roomCode);
+      const member = rawRoom?.members.find((m) => m.id === memberId);
+      if (member && member.socketId !== socket.id) {
+        return;
+      }
+    }
+
+    const disconnectRes = roomService.handleSocketDisconnect(
       socket.id,
       (code, newHost, prevHostId) => {
         io.to(code).emit('room:hostChanged', {
@@ -367,12 +423,9 @@ export function registerRoomHandlers(io: Server, socket: Socket, roomService: Ro
       }
     );
 
-    // If disconnected socket had an active room, broadcast presence change immediately
-    const roomCode = socket.data?.roomCode;
-    const memberId = socket.data?.memberId;
-    const name = socket.data?.name;
-
-    if (roomCode && memberId) {
+    // Only broadcast presence change if this socket was the authoritative member session
+    if (disconnectRes && roomCode && memberId) {
+      const name = socket.data?.name || disconnectRes.member.name;
       io.to(roomCode).emit('room:presence', {
         memberId,
         name: name || 'Engineer',

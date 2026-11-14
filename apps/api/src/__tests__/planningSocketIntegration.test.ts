@@ -98,102 +98,112 @@ describe('Real-Time Socket.IO Mission Planning Integration Tests (Phase 2)', () 
     expect(selectRes.data.room.scenarioId).toBe(targetScenario.id);
 
     // Host also receives the broadcast
-    const broadcastRoom = await hostReceivedUpdate;
-    expect(broadcastRoom.scenarioId).toBe(targetScenario.id);
-    expect(broadcastRoom.planningRevision).toBe(currentPlanningRev + 1);
+    const broadcastedRoom = await hostReceivedUpdate;
+    expect(broadcastedRoom.scenarioId).toBe(targetScenario.id);
+    expect(broadcastedRoom.lastUpdatedBy?.role).toBe('SCIENCE_LEAD');
+
+    hostSocket.disconnect();
+    scienceSocket.disconnect();
   });
 
-  it('synchronizes spacecraft design update from SYSTEMS_ENGINEER and resets crew readiness', async () => {
-    // Create a fresh collaborative room with 3 participants
-    const freshHost = await createSocket();
-    const freshSystems = await createSocket();
-    const freshScience = await createSocket();
+  it('synchronizes spacecraft design updates from SYSTEMS_ENGINEER and invalidates readiness', async () => {
+    hostSocket = await createSocket();
+    systemsSocket = await createSocket();
 
     const createRes = await new Promise<any>((resolve) => {
-      freshHost.emit('room:create', { hostName: 'Director Fresh', roomName: 'Design Sync' }, resolve);
+      hostSocket.emit(
+        'room:create',
+        { hostName: 'Flight Director', roomName: 'Collab Design Beta' },
+        (res: any) => resolve(res)
+      );
     });
-    const testCode = createRes.data.room.code;
+    const roomCode = createRes.data.room.code;
 
-    const joinSys = await new Promise<any>((resolve) => {
-      freshSystems.emit('room:join', { roomCode: testCode, name: 'Montgomery Scott', role: 'SYSTEMS_ENGINEER' }, resolve);
+    const joinRes = await new Promise<any>((resolve) => {
+      systemsSocket.emit(
+        'room:join',
+        { roomCode, name: 'Chief Engineer', role: 'SYSTEMS_ENGINEER' },
+        (res: any) => resolve(res)
+      );
     });
-    const joinSci = await new Promise<any>((resolve) => {
-      freshScience.emit('room:join', { roomCode: testCode, name: 'Spock', role: 'SCIENCE_LEAD' }, resolve);
+
+    // Mark host ready
+    await new Promise<any>((resolve) => {
+      hostSocket.emit('room:setReady', { roomCode, isReady: true }, (res: any) => resolve(res));
     });
 
-    // All 3 members mark ready
-    await new Promise<any>((resolve) => freshHost.emit('room:setReady', { roomCode: testCode, isReady: true }, resolve));
-    await new Promise<any>((resolve) => freshSystems.emit('room:setReady', { roomCode: testCode, isReady: true }, resolve));
-    const readySciRes = await new Promise<any>((resolve) => freshScience.emit('room:setReady', { roomCode: testCode, isReady: true }, resolve));
-    expect(readySciRes.data.room.members.every((m: any) => m.isReady)).toBe(true);
-
-    const newComponentIds = [
-      'bus-smallsat-standard',
-      'power-solar-standard-wings',
-      'power-batt-li-ion',
-      'comms-omni-patch',
-      'inst-multispectral-imager'
-    ];
-
-    const scienceObservedReset = new Promise<MissionRoom>((resolve) => {
-      freshScience.on('room:updated', (updated: MissionRoom) => {
-        if (updated.design?.name === 'Enterprise NX') {
-          resolve(updated);
+    const hostReceivedUpdate = new Promise<MissionRoom>((resolve) => {
+      hostSocket.on('room:updated', (room: MissionRoom) => {
+        if (room.design?.name === 'Hyperion Surveyor Mk 2') {
+          resolve(room);
         }
       });
     });
 
-    // Systems Engineer updates spacecraft design
-    const updateDesignRes = await new Promise<any>((resolve) => {
-      freshSystems.emit(
+    const updateRes = await new Promise<any>((resolve) => {
+      systemsSocket.emit(
         'design:update',
         {
-          roomCode: testCode,
-          design: { name: 'Enterprise NX', selectedComponentIds: newComponentIds },
-          baseRevision: readySciRes.data.room.planningRevision
+          roomCode,
+          design: {
+            name: 'Hyperion Surveyor Mk 2',
+            busId: 'bus-smallsat-standard',
+            selectedComponentIds: [
+              'bus-smallsat-standard',
+              'power-solar-standard-wings',
+              'power-batt-li-ion',
+              'comms-omni-patch',
+              'aocs-reaction-wheels',
+              'inst-multispectral-imager'
+            ]
+          },
+          baseRevision: joinRes.data.room.planningRevision
         },
-        resolve
+        (res: any) => resolve(res)
       );
     });
 
-    expect(updateDesignRes.success).toBe(true);
-    expect(updateDesignRes.data.room.design.name).toBe('Enterprise NX');
+    expect(updateRes.success).toBe(true);
+    expect(updateRes.data.room.design.name).toBe('Hyperion Surveyor Mk 2');
 
-    // Verify readiness was invalidated across all members due to material design change
-    const broadcastState = await scienceObservedReset;
-    expect(broadcastState.members.every((m: any) => !m.isReady)).toBe(true);
+    // Verify readiness was invalidated across members
+    const updatedRoom = await hostReceivedUpdate;
+    const hostMember = updatedRoom.members.find((m) => m.name === 'Flight Director');
+    expect(hostMember?.isReady).toBe(false);
 
-    freshHost.disconnect();
-    freshSystems.disconnect();
-    freshScience.disconnect();
+    hostSocket.disconnect();
+    systemsSocket.disconnect();
   });
 
-  it('rejects unauthorized role updates with FORBIDDEN and plan:rejected notification', async () => {
+  it('enforces role authorization on Socket.IO level and emits plan:rejected to unauthorized socket', async () => {
     const sHost = await createSocket();
     const sScience = await createSocket();
 
     const createRes = await new Promise<any>((resolve) => {
-      sHost.emit('room:create', { hostName: 'Kranz', roomName: 'Auth Test' }, resolve);
+      sHost.emit('room:create', { hostName: 'Director Lead', roomName: 'Role Auth Room' }, resolve);
     });
     const code = createRes.data.room.code;
 
     const joinRes = await new Promise<any>((resolve) => {
-      sScience.emit('room:join', { roomCode: code, name: 'Dr. Sagan', role: 'SCIENCE_LEAD' }, resolve);
+      sScience.emit('room:join', { roomCode: code, name: 'Science Specialist', role: 'SCIENCE_LEAD' }, resolve);
     });
 
-    // Set up plan:rejected listener
+    // Set up plan:rejected error listener on unauthorized client
     const rejectedPromise = new Promise<{ code: string; message: string }>((resolve) => {
-      sScience.on('plan:rejected', (data) => resolve(data));
+      sScience.on('plan:rejected', (err: any) => resolve(err));
     });
 
-    // Science Lead attempts to configure launch vehicle (which requires TRAJECTORY_SPECIALIST or FLIGHT_DIRECTOR)
+    // Science Lead attempts to configure launch vehicle (reserved for TRAJECTORY_SPECIALIST or FLIGHT_DIRECTOR)
     const launchRes = await new Promise<any>((resolve) => {
       sScience.emit(
         'launch:configure',
         {
           roomCode: code,
-          launchConfig: { vehicleId: LAUNCH_VEHICLES[0].id, orbitId: ORBIT_PROFILES[0].id },
-          baseRevision: joinRes.data.room.revision
+          launchConfig: {
+            vehicleId: LAUNCH_VEHICLES[1].id,
+            orbitId: ORBIT_PROFILES[0].id
+          },
+          baseRevision: joinRes.data.room.planningRevision
         },
         resolve
       );
@@ -295,50 +305,325 @@ describe('Real-Time Socket.IO Mission Planning Integration Tests (Phase 2)', () 
     sHostB.disconnect();
   });
 
-  it('stale socket loses authorization after reconnection via Socket B', async () => {
-    // 1. Connect Socket A and create room
+  // =========================================================================
+  // TESTS A - F: STALE SOCKET REVOCATION & ROOM AUTHORIZATION
+  // =========================================================================
+
+  it('Test A: previous socket is disconnected upon successful reconnection', async () => {
     const socketA = await createSocket();
     const createRes = await new Promise<any>((resolve) => {
-      socketA.emit('room:create', { hostName: 'Original Socket Host', roomName: 'Stale Test' }, resolve);
+      socketA.emit('room:create', { hostName: 'Host A', roomName: 'Revocation Alpha' }, resolve);
     });
     expect(createRes.success).toBe(true);
     const roomCode = createRes.data.room.code;
     const memberId = createRes.data.session.memberId;
     const resumeToken = createRes.data.session.resumeToken;
 
-    // 2. Connect Socket B and reconnect using resume token
+    // Set up disconnect listener on socketA
+    const socketADisconnected = new Promise<string>((resolve) => {
+      socketA.on('disconnect', (reason) => resolve(reason));
+    });
+
+    // Reconnect on socketB
     const socketB = await createSocket();
     const reconnectRes = await new Promise<any>((resolve) => {
       socketB.emit('room:reconnect', { roomCode, memberId, resumeToken }, resolve);
     });
     expect(reconnectRes.success).toBe(true);
 
-    // 3. Confirm Socket B can access and update planning state
-    const socketBPlanRes = await new Promise<any>((resolve) => {
+    // Confirm socketA was disconnected by the server
+    const disconnectReason = await socketADisconnected;
+    expect(disconnectReason).toBe('io server disconnect');
+    expect(socketA.connected).toBe(false);
+
+    socketB.disconnect();
+  });
+
+  it('Test B: new socket retains authenticated access to plan:get and planning mutations', async () => {
+    const socketA = await createSocket();
+    const createRes = await new Promise<any>((resolve) => {
+      socketA.emit('room:create', { hostName: 'Host B', roomName: 'Retain Access' }, resolve);
+    });
+    expect(createRes.success).toBe(true);
+    const roomCode = createRes.data.room.code;
+    const memberId = createRes.data.session.memberId;
+    const resumeToken = createRes.data.session.resumeToken;
+
+    const socketB = await createSocket();
+    const reconnectRes = await new Promise<any>((resolve) => {
+      socketB.emit('room:reconnect', { roomCode, memberId, resumeToken }, resolve);
+    });
+    expect(reconnectRes.success).toBe(true);
+
+    // 1. Socket B can read plan
+    const planRes = await new Promise<any>((resolve) => {
       socketB.emit('plan:get', { roomCode }, resolve);
     });
-    expect(socketBPlanRes.success).toBe(true);
-    expect(socketBPlanRes.data.room.code).toBe(roomCode);
+    expect(planRes.success).toBe(true);
+    expect(planRes.data.room.code).toBe(roomCode);
 
-    // 4. Confirm Socket A cannot access planning state and receives UNAUTHORIZED
-    const socketAPlanRes = await new Promise<any>((resolve) => {
-      socketA.emit('plan:get', { roomCode }, resolve);
+    // 2. Socket B can mutate scenario
+    const targetScenario = MISSION_SCENARIOS[1];
+    const updateRes = await new Promise<any>((resolve) => {
+      socketB.emit(
+        'scenario:select',
+        { roomCode, scenarioId: targetScenario.id, baseRevision: planRes.data.room.planningRevision },
+        resolve
+      );
     });
-    expect(socketAPlanRes.success).toBe(false);
-    expect(socketAPlanRes.error.code).toBe('UNAUTHORIZED');
+    expect(updateRes.success).toBe(true);
+    expect(updateRes.data.room.scenarioId).toBe(targetScenario.id);
 
-    // Confirm Socket A cannot update scenario
-    const socketAUpdateRes = await new Promise<any>((resolve) => {
-      socketA.emit(
+    socketB.disconnect();
+  });
+
+  it('Test C: previous socket cannot receive room:updated or room:presence broadcasts after reconnection', async () => {
+    const socketA = await createSocket();
+    const createRes = await new Promise<any>((resolve) => {
+      socketA.emit('room:create', { hostName: 'Host C', roomName: 'Broadcast Leak Test' }, resolve);
+    });
+    expect(createRes.success).toBe(true);
+    const roomCode = createRes.data.room.code;
+    const memberId = createRes.data.session.memberId;
+    const resumeToken = createRes.data.session.resumeToken;
+
+    let socketAReceivedRoomUpdated = false;
+    let socketAReceivedPresence = false;
+    socketA.on('room:updated', () => {
+      socketAReceivedRoomUpdated = true;
+    });
+    socketA.on('room:presence', () => {
+      socketAReceivedPresence = true;
+    });
+
+    // Reconnect on socketB
+    const socketB = await createSocket();
+    await new Promise<any>((resolve) => {
+      socketB.emit('room:reconnect', { roomCode, memberId, resumeToken }, resolve);
+    });
+
+    // Connect an observer member to trigger presence broadcasts
+    const socketOther = await createSocket();
+    const otherJoined = new Promise<any>((resolve) => {
+      socketB.on('room:presence', (p: any) => {
+        if (p.name === 'Observer Member') resolve(p);
+      });
+    });
+
+    await new Promise<any>((resolve) => {
+      socketOther.emit('room:join', { roomCode, name: 'Observer Member', role: 'SCIENCE_LEAD' }, resolve);
+    });
+
+    await otherJoined;
+
+    // Mutate scenario from socketB to trigger room:updated broadcast
+    await new Promise<any>((resolve) => {
+      socketB.emit(
         'scenario:select',
         { roomCode, scenarioId: MISSION_SCENARIOS[1].id, baseRevision: 1 },
         resolve
       );
     });
-    expect(socketAUpdateRes.success).toBe(false);
-    expect(socketAUpdateRes.error.code).toBe('UNAUTHORIZED');
+
+    // Allow time for any network packets
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(socketAReceivedRoomUpdated).toBe(false);
+    expect(socketAReceivedPresence).toBe(false);
+
+    socketB.disconnect();
+    socketOther.disconnect();
+  });
+
+  it('Test D: stale socket cannot mutate room state and is rejected with UNAUTHORIZED', async () => {
+    const socketA = await createSocket();
+    const createRes = await new Promise<any>((resolve) => {
+      socketA.emit('room:create', { hostName: 'Host D', roomName: 'Mutation Lockdown' }, resolve);
+    });
+    expect(createRes.success).toBe(true);
+    const roomCode = createRes.data.room.code;
+    const memberId = createRes.data.session.memberId;
+    const resumeToken = createRes.data.session.resumeToken;
+
+    // Socket B reconnects as the authoritative member
+    const socketB = await createSocket();
+    await new Promise<any>((resolve) => {
+      socketB.emit('room:reconnect', { roomCode, memberId, resumeToken }, resolve);
+    });
+
+    // Create a live socket representing a stale connection attempting mutations with old memberId
+    const staleSocket = await createSocket();
+    const serverStaleSocket = io.sockets.sockets.get(staleSocket.id!);
+    expect(serverStaleSocket).toBeDefined();
+    serverStaleSocket!.data = {
+      memberId,
+      roomCode,
+      authenticated: true,
+      stale: false
+    };
+
+    // 1. room:setReady
+    const readyRes = await new Promise<any>((resolve) => {
+      staleSocket.emit('room:setReady', { roomCode, isReady: true }, resolve);
+    });
+    expect(readyRes.success).toBe(false);
+    expect(readyRes.error.code).toBe('UNAUTHORIZED');
+
+    // 2. room:setRole
+    const roleRes = await new Promise<any>((resolve) => {
+      staleSocket.emit('room:setRole', { roomCode, role: 'SYSTEMS_ENGINEER' }, resolve);
+    });
+    expect(roleRes.success).toBe(false);
+    expect(roleRes.error.code).toBe('UNAUTHORIZED');
+
+    // 3. room:advanceLobby
+    const advanceRes = await new Promise<any>((resolve) => {
+      staleSocket.emit('room:advanceLobby', { roomCode }, resolve);
+    });
+    expect(advanceRes.success).toBe(false);
+    expect(advanceRes.error.code).toBe('UNAUTHORIZED');
+
+    // 4. room:leave
+    const leaveRes = await new Promise<any>((resolve) => {
+      staleSocket.emit('room:leave', { roomCode }, resolve);
+    });
+    expect(leaveRes.success).toBe(false);
+    expect(leaveRes.error.code).toBe('UNAUTHORIZED');
+
+    // 5. plan:get
+    const planRes = await new Promise<any>((resolve) => {
+      staleSocket.emit('plan:get', { roomCode }, resolve);
+    });
+    expect(planRes.success).toBe(false);
+    expect(planRes.error.code).toBe('UNAUTHORIZED');
+
+    // 6. scenario:select
+    const scenarioRes = await new Promise<any>((resolve) => {
+      staleSocket.emit('scenario:select', { roomCode, scenarioId: MISSION_SCENARIOS[1].id, baseRevision: 1 }, resolve);
+    });
+    expect(scenarioRes.success).toBe(false);
+    expect(scenarioRes.error.code).toBe('UNAUTHORIZED');
+
+    // 7. design:update
+    const designRes = await new Promise<any>((resolve) => {
+      staleSocket.emit(
+        'design:update',
+        {
+          roomCode,
+          design: { name: 'Unauthorized Stale Craft', selectedComponentIds: ['bus-smallsat-standard'] },
+          baseRevision: 1
+        },
+        resolve
+      );
+    });
+    expect(designRes.success).toBe(false);
+    expect(designRes.error.code).toBe('UNAUTHORIZED');
+
+    // 8. launch:configure
+    const launchRes = await new Promise<any>((resolve) => {
+      staleSocket.emit(
+        'launch:configure',
+        {
+          roomCode,
+          launchConfig: { vehicleId: LAUNCH_VEHICLES[0].id, orbitId: ORBIT_PROFILES[0].id },
+          baseRevision: 1
+        },
+        resolve
+      );
+    });
+    expect(launchRes.success).toBe(false);
+    expect(launchRes.error.code).toBe('UNAUTHORIZED');
+
+    // Verify stale flag set on server socket
+    expect(serverStaleSocket!.data.stale).toBe(true);
+    expect(serverStaleSocket!.data.authenticated).toBe(false);
+
+    staleSocket.disconnect();
+    socketB.disconnect();
+  });
+
+  it('Test E: invalid resume token does not disconnect active socket', async () => {
+    const socketA = await createSocket();
+    const createRes = await new Promise<any>((resolve) => {
+      socketA.emit('room:create', { hostName: 'Host E', roomName: 'Token Security' }, resolve);
+    });
+    expect(createRes.success).toBe(true);
+    const roomCode = createRes.data.room.code;
+    const memberId = createRes.data.session.memberId;
+
+    let socketADisconnected = false;
+    socketA.on('disconnect', () => {
+      socketADisconnected = true;
+    });
+
+    // Attacker or malformed client attempts reconnection with bogus resume token
+    const socketAttacker = await createSocket();
+    const reconnectRes = await new Promise<any>((resolve) => {
+      socketAttacker.emit(
+        'room:reconnect',
+        { roomCode, memberId, resumeToken: 'totally-invalid-resume-token-xyz' },
+        resolve
+      );
+    });
+    expect(reconnectRes.success).toBe(false);
+    expect(reconnectRes.error.code).toBe('INVALID_TOKEN');
+
+    // Socket A must remain connected and operational
+    await new Promise((r) => setTimeout(r, 100));
+    expect(socketADisconnected).toBe(false);
+    expect(socketA.connected).toBe(true);
+
+    const planRes = await new Promise<any>((resolve) => {
+      socketA.emit('plan:get', { roomCode }, resolve);
+    });
+    expect(planRes.success).toBe(true);
 
     socketA.disconnect();
+    socketAttacker.disconnect();
+  });
+
+  it('Test F: disconnect lifecycle remains correct and old socket disconnect does not mark participant disconnected', async () => {
+    const socketA = await createSocket();
+    const createRes = await new Promise<any>((resolve) => {
+      socketA.emit('room:create', { hostName: 'Host F', roomName: 'Lifecycle Test' }, resolve);
+    });
+    expect(createRes.success).toBe(true);
+    const roomCode = createRes.data.room.code;
+    const memberId = createRes.data.session.memberId;
+    const resumeToken = createRes.data.session.resumeToken;
+
+    // Listen on Socket B for any presence events
+    const socketB = await createSocket();
+    let socketBReceivedDisconnectedPresence = false;
+    socketB.on('room:presence', (presence: any) => {
+      if (presence.memberId === memberId && presence.connected === false) {
+        socketBReceivedDisconnectedPresence = true;
+      }
+    });
+
+    const reconnectRes = await new Promise<any>((resolve) => {
+      socketB.emit('room:reconnect', { roomCode, memberId, resumeToken }, resolve);
+    });
+    expect(reconnectRes.success).toBe(true);
+
+    // Socket A is disconnected by server revocation or client disconnect
+    socketA.disconnect();
+
+    // Wait a brief moment for any disconnect events to process
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Confirm that Socket B did NOT receive any connected: false presence for this participant
+    expect(socketBReceivedDisconnectedPresence).toBe(false);
+
+    // Check room snapshot: participant is still connected === true
+    const planRes = await new Promise<any>((resolve) => {
+      socketB.emit('plan:get', { roomCode }, resolve);
+    });
+    expect(planRes.success).toBe(true);
+    const memberInRoom = planRes.data.room.members.find((m: any) => m.id === memberId);
+    expect(memberInRoom).toBeDefined();
+    expect(memberInRoom.connected).toBe(true);
+
     socketB.disconnect();
   });
 

@@ -7,59 +7,7 @@ import {
   UpdateScenarioInputSchema
 } from '@orbital/contracts';
 import { RoomService } from '../../services/roomService';
-import { normalizeRoomCode } from '../../services/roomCodeService';
-
-/**
- * Resolves the authenticated member ID and room code for a socket connection.
- * Strictly verifies that the member is connected and that socket.id matches
- * the member's currently active socketId, rejecting superseded/stale sockets.
- */
-function resolveSocketMember(socket: Socket, roomService: RoomService, targetRoomCode: string): {
-  memberId: string;
-  roomCode: string;
-} | null {
-  const normCode = normalizeRoomCode(targetRoomCode);
-  const rawRoom = roomService.getRawRoom(normCode);
-  if (!rawRoom) return null;
-
-  // The member must have established identity on this socket (socket.data.memberId)
-  // or exist in the room with socketId matching this socket.id
-  const targetMemberId = socket.data?.memberId;
-  const member = targetMemberId
-    ? rawRoom.members.find((m) => m.id === targetMemberId)
-    : rawRoom.members.find((m) => m.socketId === socket.id);
-
-  if (!member) return null;
-
-  // Crucial: Must be actively connected AND socket.id must match the active member.socketId
-  if (!member.connected || member.socketId !== socket.id) {
-    if (socket.data) {
-      socket.data.authenticated = false;
-      socket.data.stale = true;
-    }
-    return null;
-  }
-
-  // Ensure socket room context matches target room
-  if (socket.data?.roomCode && normalizeRoomCode(socket.data.roomCode) !== normCode) {
-    return null;
-  }
-
-  // Keep socket data synchronized
-  socket.data = {
-    memberId: member.id,
-    roomCode: normCode,
-    name: member.name,
-    role: member.role,
-    isHost: member.isHost,
-    authenticated: true
-  };
-
-  return {
-    memberId: member.id,
-    roomCode: normCode
-  };
-}
+import { validateActiveSocketSession } from '../socketAuth';
 
 export function registerPlanningHandlers(io: Server, socket: Socket, roomService: RoomService) {
   // ----------------------------------------------------
@@ -79,13 +27,13 @@ export function registerPlanningHandlers(io: Server, socket: Socket, roomService
       }
 
       const { roomCode } = parsed.data;
-      const auth = resolveSocketMember(socket, roomService, roomCode);
+      const auth = validateActiveSocketSession(socket, roomService, roomCode);
       if (!auth) {
         return callback?.({
           success: false,
           error: {
             code: 'UNAUTHORIZED',
-            message: 'You are not authenticated in this mission room.'
+            message: 'You are not authenticated or your session was resumed from another connection.'
           }
         });
       }
@@ -122,9 +70,9 @@ export function registerPlanningHandlers(io: Server, socket: Socket, roomService
       }
 
       const { roomCode, scenarioId, baseRevision, requestId } = parsed.data;
-      const auth = resolveSocketMember(socket, roomService, roomCode);
+      const auth = validateActiveSocketSession(socket, roomService, roomCode);
       if (!auth) {
-        const errorMsg = 'You are not authenticated in this mission room.';
+        const errorMsg = 'You are not authenticated or your session was resumed from another connection.';
         socket.emit('plan:rejected', { code: 'UNAUTHORIZED', message: errorMsg });
         return callback?.({
           success: false,
@@ -184,9 +132,9 @@ export function registerPlanningHandlers(io: Server, socket: Socket, roomService
       }
 
       const { roomCode, design, baseRevision, requestId } = parsed.data;
-      const auth = resolveSocketMember(socket, roomService, roomCode);
+      const auth = validateActiveSocketSession(socket, roomService, roomCode);
       if (!auth) {
-        const errorMsg = 'Session has been resumed on another connection or socket is no longer active.';
+        const errorMsg = 'You are not authenticated or your session was resumed from another connection.';
         socket.emit('plan:rejected', { code: 'UNAUTHORIZED', message: errorMsg });
         return callback?.({
           success: false,
@@ -249,9 +197,9 @@ export function registerPlanningHandlers(io: Server, socket: Socket, roomService
       }
 
       const { roomCode, launchConfig, baseRevision, requestId } = parsed.data;
-      const auth = resolveSocketMember(socket, roomService, roomCode);
+      const auth = validateActiveSocketSession(socket, roomService, roomCode);
       if (!auth) {
-        const errorMsg = 'Session has been resumed on another connection or socket is no longer active.';
+        const errorMsg = 'You are not authenticated or your session was resumed from another connection.';
         socket.emit('plan:rejected', { code: 'UNAUTHORIZED', message: errorMsg });
         return callback?.({
           success: false,
