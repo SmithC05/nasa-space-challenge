@@ -1,8 +1,10 @@
 import {
   EngineerRole,
+  LaunchConfiguration,
   MissionRoom,
   ParticipantSession,
   RoomStatus,
+  SpacecraftDesign,
   TeamMember
 } from '@orbital/contracts';
 import {
@@ -15,10 +17,22 @@ import {
   canAdvanceLobby,
   canChangeReadyState,
   canChangeRole,
+  canPerformPlanningAction,
   getNextAvailableRole,
   isRoleAvailable,
   isRoomAllReady
 } from './permissionService';
+import {
+  DEFAULT_INITIAL_COMPONENT_IDS,
+  buildAuthoritativeDesign,
+  buildAuthoritativeLaunchConfig,
+  isDesignMaterialChange,
+  isLaunchMaterialChange,
+  resolveLaunchVehicle,
+  resolveOrbit,
+  resolveScenario
+} from './planningService';
+import { SPACECRAFT_COMPONENTS } from '@orbital/game-data';
 import { getDatabase, missionRoomsTable, teamMembersTable } from '@orbital/database';
 import { eq } from 'drizzle-orm';
 
@@ -39,11 +53,20 @@ export interface InternalRoomState {
   code: string;
   name: string;
   hostId: string;
-  scenarioId: string | null;
+  scenarioId: string;
+  design: SpacecraftDesign;
+  launchConfig: LaunchConfiguration;
   status: RoomStatus;
   maxPlayers: number;
   revision: number;
   members: InternalMemberSession[];
+  lastUpdatedBy?: {
+    memberId: string;
+    name: string;
+    role: EngineerRole;
+    action: string;
+  };
+  processedRequests?: Map<string, MissionRoom>;
   createdAt: string;
   updatedAt: string;
 }
@@ -51,6 +74,7 @@ export interface InternalRoomState {
 export class RoomService {
   private rooms = new Map<string, InternalRoomState>();
   private disconnectTimers = new Map<string, NodeJS.Timeout>();
+  private roomLocks = new Map<string, Promise<unknown>>();
   private gracePeriodMs: number;
 
   constructor(gracePeriodMs = 60000) {
@@ -71,6 +95,29 @@ export class RoomService {
 
   public getRawRoom(code: string): InternalRoomState | undefined {
     return this.rooms.get(normalizeRoomCode(code));
+  }
+
+  /**
+   * Serializes operations per room to prevent concurrent mutation race conditions.
+   */
+  public async withRoomLock<T>(roomCode: string, fn: () => Promise<T>): Promise<T> {
+    const code = normalizeRoomCode(roomCode);
+    const prev = this.roomLocks.get(code) || Promise.resolve();
+    let resolveNext: () => void;
+    const next = new Promise<void>((resolve) => {
+      resolveNext = resolve;
+    });
+    this.roomLocks.set(code, next);
+
+    try {
+      await prev;
+      return await fn();
+    } finally {
+      resolveNext!();
+      if (this.roomLocks.get(code) === next) {
+        this.roomLocks.delete(code);
+      }
+    }
   }
 
   /**
@@ -97,12 +144,13 @@ export class RoomService {
       name: room.name,
       hostId: room.hostId,
       scenarioId: room.scenarioId,
-      design: null,
-      launchConfig: null,
+      design: room.design,
+      launchConfig: room.launchConfig,
       members: publicMembers,
       status: room.status,
       maxPlayers: room.maxPlayers,
       revision: room.revision,
+      lastUpdatedBy: room.lastUpdatedBy,
       createdAt: room.createdAt,
       updatedAt: room.updatedAt
     };
@@ -133,15 +181,40 @@ export class RoomService {
       lastActiveAt: now
     };
 
+    // Initialize authoritative default planning state
+    const defaultScenario = resolveScenario('scenario-earth-sentinel');
+    const defaultOrbit = resolveOrbit(defaultScenario.targetOrbitType);
+    const defaultVehicle = resolveLaunchVehicle();
+    const defaultDesign = buildAuthoritativeDesign(
+      defaultScenario,
+      defaultOrbit,
+      DEFAULT_INITIAL_COMPONENT_IDS,
+      `${defaultScenario.code} Orbiter Alpha`
+    );
+    const defaultLaunch = buildAuthoritativeLaunchConfig(
+      defaultVehicle,
+      defaultOrbit,
+      defaultDesign,
+      defaultScenario
+    );
+
     const newRoom: InternalRoomState = {
       code,
       name: (roomName?.trim() || `${hostMember.name}'s Mission`).substring(0, 48),
       hostId: hostMember.id,
-      scenarioId: 'scenario-earth-sentinel',
+      scenarioId: defaultScenario.id,
+      design: defaultDesign,
+      launchConfig: defaultLaunch,
       status: 'LOBBY',
       maxPlayers: 4,
       revision: 1,
       members: [hostMember],
+      lastUpdatedBy: {
+        memberId: hostMember.id,
+        name: hostMember.name,
+        role: hostMember.role,
+        action: 'Initialized mission room and baseline configuration'
+      },
       createdAt: now,
       updatedAt: now
     };
@@ -400,7 +473,345 @@ export class RoomService {
   }
 
   /**
-   * 7. HANDLE SOCKET DISCONNECT WITH 60-SECOND GRACE PERIOD
+   * ==========================================
+   * PHASE 2: COLLABORATIVE MISSION PLANNING
+   * ==========================================
+   */
+
+  /**
+   * 7. GET MISSION PLANNING SNAPSHOT
+   */
+  public getPlanningSnapshot(
+    rawCode: string,
+    memberId: string
+  ): MissionRoom {
+    const code = normalizeRoomCode(rawCode);
+    const room = this.rooms.get(code);
+    if (!room) {
+      throw { code: 'ROOM_NOT_FOUND', message: `Room [${code}] not found.` };
+    }
+
+    const auth = canPerformPlanningAction(room, memberId, 'VIEW_PLAN');
+    if (!auth.allowed) {
+      throw { code: 'FORBIDDEN', message: auth.reason || 'Not authorized to view mission plan.' };
+    }
+
+    return this.getRoomSnapshot(code)!;
+  }
+
+  /**
+   * 8. UPDATE MISSION SCENARIO
+   */
+  public async updateScenario(
+    rawCode: string,
+    memberId: string,
+    scenarioId: string,
+    baseRevision?: number,
+    requestId?: string
+  ): Promise<{ room: MissionRoom; isMaterialChange: boolean }> {
+    const code = normalizeRoomCode(rawCode);
+    return this.withRoomLock(code, async () => {
+      const room = this.rooms.get(code);
+      if (!room) {
+        throw { code: 'ROOM_NOT_FOUND', message: `Room [${code}] not found.` };
+      }
+
+      // Idempotency: return existing result if requestId was already processed
+      if (requestId && room.processedRequests?.has(requestId)) {
+        return { room: room.processedRequests.get(requestId)!, isMaterialChange: false };
+      }
+
+      // Centralized Role-based authorization
+      const auth = canPerformPlanningAction(room, memberId, 'SELECT_SCENARIO');
+      if (!auth.allowed) {
+        throw { code: 'FORBIDDEN', message: auth.reason || 'Not authorized to select mission scenario.' };
+      }
+
+      // Monotonically increasing revision control
+      if (baseRevision !== undefined && baseRevision !== room.revision) {
+        throw {
+          code: 'REVISION_CONFLICT',
+          message: `Planning state has changed (server revision: ${room.revision}, your revision: ${baseRevision}). Reconciled with latest room state.`,
+          currentSnapshot: this.getRoomSnapshot(code)
+        };
+      }
+
+      // Validate scenario exists in catalog
+      const targetScenario = resolveScenario(scenarioId);
+      if (targetScenario.id !== scenarioId) {
+        throw { code: 'INVALID_SCENARIO', message: `Scenario with ID '${scenarioId}' does not exist.` };
+      }
+
+      // Check for material change
+      const isMaterialChange = room.scenarioId !== scenarioId;
+      if (!isMaterialChange) {
+        return { room: this.getRoomSnapshot(code)!, isMaterialChange: false };
+      }
+
+      const now = new Date().toISOString();
+      const currentOrbit = resolveOrbit(room.launchConfig?.orbitId || targetScenario.targetOrbitType);
+      const currentVehicle = resolveLaunchVehicle(room.launchConfig?.vehicleId);
+
+      // Apply update & recalculate authoritative design and launch configuration
+      room.scenarioId = targetScenario.id;
+      room.design = buildAuthoritativeDesign(
+        targetScenario,
+        currentOrbit,
+        room.design.selectedComponentIds,
+        room.design.name,
+        room.design.busId
+      );
+      room.launchConfig = buildAuthoritativeLaunchConfig(
+        currentVehicle,
+        currentOrbit,
+        room.design,
+        targetScenario,
+        room.launchConfig.launchSite
+      );
+
+      // Material change invalidates participant readiness
+      room.members.forEach((m) => {
+        m.isReady = false;
+      });
+
+      room.revision += 1;
+      room.updatedAt = now;
+      room.lastUpdatedBy = {
+        memberId,
+        name: auth.member?.name || 'Flight Crew',
+        role: auth.member?.role || 'SCIENCE_LEAD',
+        action: `Selected scenario: ${targetScenario.name}`
+      };
+
+      const snapshot = this.getRoomSnapshot(code)!;
+      if (requestId) {
+        if (!room.processedRequests) room.processedRequests = new Map();
+        room.processedRequests.set(requestId, snapshot);
+      }
+
+      return { room: snapshot, isMaterialChange: true };
+    });
+  }
+
+  /**
+   * 9. UPDATE SPACECRAFT DESIGN
+   */
+  public async updateDesign(
+    rawCode: string,
+    memberId: string,
+    designPayload: {
+      name?: string;
+      busId?: string;
+      selectedComponentIds: string[];
+    },
+    baseRevision?: number,
+    requestId?: string
+  ): Promise<{ room: MissionRoom; isMaterialChange: boolean }> {
+    const code = normalizeRoomCode(rawCode);
+    return this.withRoomLock(code, async () => {
+      const room = this.rooms.get(code);
+      if (!room) {
+        throw { code: 'ROOM_NOT_FOUND', message: `Room [${code}] not found.` };
+      }
+
+      if (requestId && room.processedRequests?.has(requestId)) {
+        return { room: room.processedRequests.get(requestId)!, isMaterialChange: false };
+      }
+
+      const auth = canPerformPlanningAction(room, memberId, 'UPDATE_DESIGN');
+      if (!auth.allowed) {
+        throw { code: 'FORBIDDEN', message: auth.reason || 'Not authorized to update spacecraft design.' };
+      }
+
+      if (baseRevision !== undefined && baseRevision !== room.revision) {
+        throw {
+          code: 'REVISION_CONFLICT',
+          message: `Planning state has changed (server revision: ${room.revision}, your revision: ${baseRevision}). Reconciled with latest room state.`,
+          currentSnapshot: this.getRoomSnapshot(code)
+        };
+      }
+
+      const componentIds = designPayload.selectedComponentIds;
+      if (!componentIds || componentIds.length === 0) {
+        throw { code: 'INVALID_DESIGN', message: 'At least one component must be selected for the spacecraft.' };
+      }
+
+      // Verify all component IDs exist in game data catalog
+      for (const id of componentIds) {
+        if (!SPACECRAFT_COMPONENTS.some((c) => c.id === id)) {
+          throw { code: 'INVALID_COMPONENT', message: `Component with ID '${id}' does not exist in catalog.` };
+        }
+      }
+
+      // Check material change
+      const isMaterial = isDesignMaterialChange(
+        room.design,
+        componentIds,
+        designPayload.name,
+        designPayload.busId
+      );
+
+      if (!isMaterial) {
+        return { room: this.getRoomSnapshot(code)!, isMaterialChange: false };
+      }
+
+      const now = new Date().toISOString();
+      const currentScenario = resolveScenario(room.scenarioId);
+      const currentOrbit = resolveOrbit(room.launchConfig?.orbitId);
+      const currentVehicle = resolveLaunchVehicle(room.launchConfig?.vehicleId);
+
+      // Rebuild authoritative design
+      room.design = buildAuthoritativeDesign(
+        currentScenario,
+        currentOrbit,
+        componentIds,
+        designPayload.name || room.design.name,
+        designPayload.busId || room.design.busId
+      );
+
+      // Recalculate launch configuration with updated mass
+      room.launchConfig = buildAuthoritativeLaunchConfig(
+        currentVehicle,
+        currentOrbit,
+        room.design,
+        currentScenario,
+        room.launchConfig.launchSite
+      );
+
+      // Invalidate participant readiness
+      room.members.forEach((m) => {
+        m.isReady = false;
+      });
+
+      room.revision += 1;
+      room.updatedAt = now;
+      room.lastUpdatedBy = {
+        memberId,
+        name: auth.member?.name || 'Systems Engineer',
+        role: auth.member?.role || 'SYSTEMS_ENGINEER',
+        action: `Updated spacecraft design (${componentIds.length} components)`
+      };
+
+      const snapshot = this.getRoomSnapshot(code)!;
+      if (requestId) {
+        if (!room.processedRequests) room.processedRequests = new Map();
+        room.processedRequests.set(requestId, snapshot);
+      }
+
+      return { room: snapshot, isMaterialChange: true };
+    });
+  }
+
+  /**
+   * 10. UPDATE LAUNCH CONFIGURATION
+   */
+  public async updateLaunchConfig(
+    rawCode: string,
+    memberId: string,
+    launchPayload: {
+      vehicleId: string;
+      orbitId: string;
+      launchSite?: string;
+    },
+    baseRevision?: number,
+    requestId?: string
+  ): Promise<{ room: MissionRoom; isMaterialChange: boolean }> {
+    const code = normalizeRoomCode(rawCode);
+    return this.withRoomLock(code, async () => {
+      const room = this.rooms.get(code);
+      if (!room) {
+        throw { code: 'ROOM_NOT_FOUND', message: `Room [${code}] not found.` };
+      }
+
+      if (requestId && room.processedRequests?.has(requestId)) {
+        return { room: room.processedRequests.get(requestId)!, isMaterialChange: false };
+      }
+
+      const auth = canPerformPlanningAction(room, memberId, 'UPDATE_LAUNCH');
+      if (!auth.allowed) {
+        throw { code: 'FORBIDDEN', message: auth.reason || 'Not authorized to update launch configuration.' };
+      }
+
+      if (baseRevision !== undefined && baseRevision !== room.revision) {
+        throw {
+          code: 'REVISION_CONFLICT',
+          message: `Planning state has changed (server revision: ${room.revision}, your revision: ${baseRevision}). Reconciled with latest room state.`,
+          currentSnapshot: this.getRoomSnapshot(code)
+        };
+      }
+
+      // Validate vehicle and orbit exist in catalogs
+      const targetVehicle = resolveLaunchVehicle(launchPayload.vehicleId);
+      const targetOrbit = resolveOrbit(launchPayload.orbitId);
+
+      if (targetVehicle.id !== launchPayload.vehicleId) {
+        throw { code: 'INVALID_VEHICLE', message: `Launch vehicle with ID '${launchPayload.vehicleId}' does not exist.` };
+      }
+      if (targetOrbit.id !== launchPayload.orbitId) {
+        throw { code: 'INVALID_ORBIT', message: `Orbit profile with ID '${launchPayload.orbitId}' does not exist.` };
+      }
+
+      // Check material change
+      const isMaterial = isLaunchMaterialChange(
+        room.launchConfig,
+        launchPayload.vehicleId,
+        launchPayload.orbitId,
+        launchPayload.launchSite
+      );
+
+      if (!isMaterial) {
+        return { room: this.getRoomSnapshot(code)!, isMaterialChange: false };
+      }
+
+      const now = new Date().toISOString();
+      const currentScenario = resolveScenario(room.scenarioId);
+
+      // If orbit changed, recalculate spacecraft design resources because eclipse times change
+      if (targetOrbit.id !== room.launchConfig.orbitId) {
+        room.design = buildAuthoritativeDesign(
+          currentScenario,
+          targetOrbit,
+          room.design.selectedComponentIds,
+          room.design.name,
+          room.design.busId
+        );
+      }
+
+      // Rebuild launch configuration
+      room.launchConfig = buildAuthoritativeLaunchConfig(
+        targetVehicle,
+        targetOrbit,
+        room.design,
+        currentScenario,
+        launchPayload.launchSite || room.launchConfig.launchSite
+      );
+
+      // Invalidate participant readiness
+      room.members.forEach((m) => {
+        m.isReady = false;
+      });
+
+      room.revision += 1;
+      room.updatedAt = now;
+      room.lastUpdatedBy = {
+        memberId,
+        name: auth.member?.name || 'Trajectory Specialist',
+        role: auth.member?.role || 'TRAJECTORY_SPECIALIST',
+        action: `Configured launch: ${targetVehicle.name} to ${targetOrbit.name}`
+      };
+
+      const snapshot = this.getRoomSnapshot(code)!;
+      if (requestId) {
+        if (!room.processedRequests) room.processedRequests = new Map();
+        room.processedRequests.set(requestId, snapshot);
+      }
+
+      return { room: snapshot, isMaterialChange: true };
+    });
+  }
+
+  /**
+   * 11. HANDLE SOCKET DISCONNECT WITH 60-SECOND GRACE PERIOD
    */
   public handleSocketDisconnect(
     socketId: string,

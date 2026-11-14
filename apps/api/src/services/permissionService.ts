@@ -130,3 +130,59 @@ export function canAdvanceLobby(
 
   return { allowed: true };
 }
+
+export type MissionPlanningAction =
+  | 'SELECT_SCENARIO'
+  | 'UPDATE_DESIGN'
+  | 'UPDATE_LAUNCH'
+  | 'VIEW_PLAN';
+
+export const PLANNING_PERMITTED_ROLES: Record<MissionPlanningAction, EngineerRole[]> = {
+  SELECT_SCENARIO: ['SCIENCE_LEAD', 'FLIGHT_DIRECTOR'],
+  UPDATE_DESIGN: ['SYSTEMS_ENGINEER', 'FLIGHT_DIRECTOR'],
+  UPDATE_LAUNCH: ['TRAJECTORY_SPECIALIST', 'FLIGHT_DIRECTOR'],
+  VIEW_PLAN: ['FLIGHT_DIRECTOR', 'SYSTEMS_ENGINEER', 'TRAJECTORY_SPECIALIST', 'SCIENCE_LEAD']
+};
+
+/**
+ * Validates whether a participant is authorized to perform a mission planning action.
+ */
+export function canPerformPlanningAction(
+  room: RoomPermissionContext,
+  memberId: string,
+  action: MissionPlanningAction
+): { allowed: boolean; reason?: string; member?: RoomMemberPresence } {
+  if (!room || !memberId) {
+    return { allowed: false, reason: 'Missing room or member authentication.' };
+  }
+
+  // Room status check: cannot update plan if closed or active mission
+  const activePlanningStatuses = ['LOBBY', 'MISSION_SETUP', 'DESIGNING', 'LAUNCH_READY'];
+  if (!activePlanningStatuses.includes(room.status)) {
+    return {
+      allowed: false,
+      reason: `Mission planning cannot be modified while room is in '${room.status}' phase.`
+    };
+  }
+
+  const member = room.members.find((m) => m.id === memberId);
+  if (!member) {
+    return { allowed: false, reason: 'You are not a registered participant of this mission room.' };
+  }
+
+  if (!member.connected) {
+    return { allowed: false, reason: 'Disconnected members cannot modify mission planning.' };
+  }
+
+  const allowedRoles = PLANNING_PERMITTED_ROLES[action];
+  if (!allowedRoles || !allowedRoles.includes(member.role)) {
+    const roleNames = allowedRoles.map((r) => r.replace('_', ' ')).join(' or ');
+    return {
+      allowed: false,
+      reason: `Role '${member.role.replace('_', ' ')}' is not authorized for this action. Required: ${roleNames}.`,
+      member
+    };
+  }
+
+  return { allowed: true, member };
+}
