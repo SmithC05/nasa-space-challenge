@@ -1,4 +1,5 @@
 import React from 'react';
+import { useGameStore } from '../../store/gameStore';
 import { LaunchVehicle, MissionScenario, OrbitProfile, SpacecraftDesign } from '@orbital/contracts';
 import {
   calculateVehicleOrbitCapacity,
@@ -23,10 +24,10 @@ interface LaunchVehicleComparisonModalProps {
   isOpen: boolean;
   onClose: () => void;
   vehicles: LaunchVehicle[];
-  selectedVehicleId: string;
-  selectedOrbit: OrbitProfile;
-  currentDesign: SpacecraftDesign;
-  scenarioBudgetMUSD: number;
+  selectedVehicleId?: string;
+  selectedOrbit?: OrbitProfile;
+  currentDesign?: SpacecraftDesign;
+  scenarioBudgetMUSD?: number;
   selectedScenario?: MissionScenario;
   onSelectVehicle: (vehicle: LaunchVehicle) => void;
 }
@@ -35,14 +36,22 @@ export function LaunchVehicleComparisonModal({
   isOpen,
   onClose,
   vehicles,
-  selectedVehicleId,
-  selectedOrbit,
-  currentDesign,
-  scenarioBudgetMUSD,
-  selectedScenario,
+  selectedVehicleId: propSelectedVehicleId,
+  selectedOrbit: propSelectedOrbit,
+  currentDesign: propCurrentDesign,
+  scenarioBudgetMUSD: propScenarioBudgetMUSD,
+  selectedScenario: propSelectedScenario,
   onSelectVehicle
 }: LaunchVehicleComparisonModalProps) {
+  const store = useGameStore();
   if (!isOpen) return null;
+
+  const selectedVehicle = store.selectedVehicle;
+  const selectedVehicleId = selectedVehicle?.id || propSelectedVehicleId!;
+  const selectedOrbit = store.selectedOrbit || propSelectedOrbit!;
+  const currentDesign = store.currentDesign || propCurrentDesign!;
+  const selectedScenario = store.selectedScenario || propSelectedScenario;
+  const scenarioBudgetMUSD = selectedScenario?.budgetMUSD || propScenarioBudgetMUSD || 140;
 
   const orbitCategory =
     (selectedOrbit as any).category ||

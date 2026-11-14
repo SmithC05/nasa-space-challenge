@@ -268,6 +268,11 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   confirmLaunchConfiguration: () => {
     const { selectedVehicle, selectedOrbit, currentDesign, selectedScenario, activeRoom } = get();
+    if (!selectedVehicle || !selectedOrbit || !currentDesign || !selectedScenario) {
+      return false;
+    }
+
+    // Synchronously re-evaluate launch handoff and validation against current selections
     const handoff = createLaunchHandoff(
       selectedVehicle,
       selectedOrbit,
@@ -275,9 +280,15 @@ export const useGameStore = create<GameState>((set, get) => ({
       selectedScenario
     );
 
-    if (!handoff.isReadyForOperations) {
+    // Reject confirmation if any critical gate fails or total cost exceeds the budget ceiling
+    if (
+      !handoff.isReadyForOperations ||
+      !handoff.validation.isOverallCleared ||
+      handoff.validation.overallStatus === 'BLOCKED' ||
+      handoff.validation.totalMissionCostMUSD > handoff.validation.maxBudgetWithBufferMUSD
+    ) {
       set({
-        launchHandoff: handoff,
+        launchHandoff: null,
         launchConfig: handoff.configuration
       });
       return false;
@@ -312,7 +323,13 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
   },
 
-  getLaunchHandoff: () => get().launchHandoff,
+  getLaunchHandoff: () => {
+    const handoff = get().launchHandoff;
+    if (!handoff || !handoff.isReadyForOperations) {
+      return null;
+    }
+    return handoff;
+  },
 
   recalculateDesign: () => {
     const { selectedScenario, selectedOrbit, selectedComponentIds, currentDesign } = get();

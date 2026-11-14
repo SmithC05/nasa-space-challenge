@@ -1,4 +1,5 @@
 import React from 'react';
+import { useGameStore } from '../../store/gameStore';
 import {
   LaunchConfiguration,
   LaunchVehicle,
@@ -26,22 +27,29 @@ import {
 } from 'lucide-react';
 
 interface FlightIntegrationChecklistProps {
-  selectedVehicle: LaunchVehicle;
-  selectedOrbit: OrbitProfile;
-  currentDesign: SpacecraftDesign;
-  selectedScenario: MissionScenario;
-  launchConfig: LaunchConfiguration;
+  selectedVehicle?: LaunchVehicle;
+  selectedOrbit?: OrbitProfile;
+  currentDesign?: SpacecraftDesign;
+  selectedScenario?: MissionScenario;
+  launchConfig?: LaunchConfiguration;
   onOpenReview?: () => void;
 }
 
 export function FlightIntegrationChecklist({
-  selectedVehicle,
-  selectedOrbit,
-  currentDesign,
-  selectedScenario,
-  launchConfig,
+  selectedVehicle: propVehicle,
+  selectedOrbit: propOrbit,
+  currentDesign: propDesign,
+  selectedScenario: propScenario,
+  launchConfig: propLaunchConfig,
   onOpenReview
 }: FlightIntegrationChecklistProps) {
+  const store = useGameStore();
+  const selectedVehicle = store.selectedVehicle || propVehicle!;
+  const selectedOrbit = store.selectedOrbit || propOrbit!;
+  const currentDesign = store.currentDesign || propDesign!;
+  const selectedScenario = store.selectedScenario || propScenario!;
+  const launchConfig = store.launchConfig || propLaunchConfig!;
+
   const spacecraftMassKg = currentDesign.resources.totalMassKg;
   const spacecraftCostMUSD = currentDesign.resources.totalCostMUSD;
 

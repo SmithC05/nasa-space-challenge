@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useGameStore } from '../../store/gameStore';
 import {
   LaunchConfiguration,
   LaunchVehicle,
@@ -41,30 +42,47 @@ import {
 interface LaunchConfigurationReviewModalProps {
   isOpen: boolean;
   onClose: () => void;
-  selectedVehicle: LaunchVehicle;
-  selectedOrbit: OrbitProfile;
-  currentDesign: SpacecraftDesign;
-  selectedScenario: MissionScenario;
-  launchConfig: LaunchConfiguration;
-  onConfirmLaunch: () => void;
-  onNavigateToOrbit: () => void;
-  onNavigateToVehicle: () => void;
+  selectedVehicle?: LaunchVehicle;
+  selectedOrbit?: OrbitProfile;
+  currentDesign?: SpacecraftDesign;
+  selectedScenario?: MissionScenario;
+  launchConfig?: LaunchConfiguration;
+  onConfirmLaunch?: () => void;
+  onNavigateToOrbit?: () => void;
+  onNavigateToVehicle?: () => void;
 }
 
 export function LaunchConfigurationReviewModal({
   isOpen,
   onClose,
-  selectedVehicle,
-  selectedOrbit,
-  currentDesign,
-  selectedScenario,
-  launchConfig,
+  selectedVehicle: propVehicle,
+  selectedOrbit: propOrbit,
+  currentDesign: propDesign,
+  selectedScenario: propScenario,
+  launchConfig: propLaunchConfig,
   onConfirmLaunch,
   onNavigateToOrbit,
   onNavigateToVehicle
 }: LaunchConfigurationReviewModalProps) {
+  const store = useGameStore();
   const [isConfirming, setIsConfirming] = useState(false);
   const [isConfirmedSuccess, setIsConfirmedSuccess] = useState(false);
+
+  // Single source of truth: Zustand store guarantees live sync across all components
+  const selectedVehicle = store.selectedVehicle ?? propVehicle!;
+  const selectedOrbit = store.selectedOrbit ?? propOrbit!;
+  const currentDesign = store.currentDesign ?? propDesign!;
+  const selectedScenario = store.selectedScenario ?? propScenario!;
+  const launchConfig = store.launchConfig ?? propLaunchConfig!;
+  const confirmLaunchConfiguration = store.confirmLaunchConfiguration;
+
+  // Reset confirmation transient states when modal is opened or selection changes
+  React.useEffect(() => {
+    if (isOpen) {
+      setIsConfirming(false);
+      setIsConfirmedSuccess(false);
+    }
+  }, [isOpen, selectedVehicle?.id, selectedOrbit?.id]);
 
   if (!isOpen) return null;
 
@@ -90,14 +108,19 @@ export function LaunchConfigurationReviewModal({
   const overallStatus = validation.overallStatus;
 
   const handleConfirm = () => {
-    if (!validation.isOverallCleared) return;
+    if (!validation.isOverallCleared || validation.overallStatus === 'BLOCKED') return;
 
     setIsConfirming(true);
     setTimeout(() => {
+      const confirmed = confirmLaunchConfiguration();
+      if (!confirmed) {
+        setIsConfirming(false);
+        return;
+      }
       setIsConfirming(false);
       setIsConfirmedSuccess(true);
       setTimeout(() => {
-        onConfirmLaunch();
+        onConfirmLaunch?.();
         onClose();
       }, 1000);
     }, 600);
@@ -632,7 +655,7 @@ export function LaunchConfigurationReviewModal({
               type="button"
               onClick={() => {
                 onClose();
-                onNavigateToOrbit();
+                onNavigateToOrbit?.();
               }}
               className="px-3.5 py-2.5 rounded-xl font-bold text-xs bg-space-850 hover:bg-space-800 text-slate-300 border border-slate-700 transition-colors flex items-center space-x-1.5"
             >
@@ -644,8 +667,8 @@ export function LaunchConfigurationReviewModal({
               type="button"
               onClick={() => {
                 onClose();
-                onNavigateToVehicle}
-              }
+                onNavigateToVehicle?.();
+              }}
               className="px-3.5 py-2.5 rounded-xl font-bold text-xs bg-space-850 hover:bg-space-800 text-slate-300 border border-slate-700 transition-colors flex items-center space-x-1.5"
             >
               <ArrowLeft className="w-3.5 h-3.5" />

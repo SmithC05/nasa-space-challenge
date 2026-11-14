@@ -49,7 +49,9 @@ export function OrbitLaunchStudio() {
   const handleLaunchClick = () => {
     if (!launchConfig.isCompatible) return;
 
-    confirmLaunchConfiguration();
+    const confirmed = confirmLaunchConfiguration();
+    if (!confirmed) return;
+
     setIsLaunchingAnim(true);
     setTimeout(() => {
       startMissionLaunch();
@@ -193,7 +195,7 @@ export function OrbitLaunchStudio() {
             }`}>
               4
             </span>
-            <span>{launchConfig.isCompatible ? 'Gates Passed' : 'Gates Blocked'}</span>
+            <span>{launchConfig.isCompatible ? 'Validation Passed' : 'Validation Blocked'}</span>
           </div>
 
           <span className="text-slate-600">→</span>
@@ -203,18 +205,28 @@ export function OrbitLaunchStudio() {
             className="flex items-center space-x-1.5 text-cyan-300 hover:text-cyan-200 transition-colors font-bold bg-cyan-950/60 px-2 py-1 rounded border border-cyan-800"
           >
             <span className="w-5 h-5 rounded-full bg-cyan-900 border border-cyan-700 flex items-center justify-center text-[10px]">5</span>
-            <span>Review & Clearance</span>
+            <span>Review Configuration</span>
           </button>
 
           <span className="text-slate-600">→</span>
 
           <div
             className={`flex items-center space-x-1.5 font-bold ${
-              launchConfig.isCompatible ? 'text-slate-300' : 'text-slate-600'
+              launchConfig.status === 'CONFIRMED'
+                ? 'text-emerald-400'
+                : launchConfig.isCompatible
+                  ? 'text-slate-300'
+                  : 'text-slate-600'
             }`}
           >
-            <span className="w-5 h-5 rounded-full bg-space-850 border border-slate-700 flex items-center justify-center text-[10px]">6</span>
-            <span>Handoff to Ops</span>
+            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] border ${
+              launchConfig.status === 'CONFIRMED'
+                ? 'bg-emerald-950 border-emerald-800'
+                : 'bg-space-850 border-slate-700'
+            }`}>
+              6
+            </span>
+            <span>{launchConfig.status === 'CONFIRMED' ? 'Launch Confirmed' : 'Confirm Launch'}</span>
           </div>
         </div>
       </div>
