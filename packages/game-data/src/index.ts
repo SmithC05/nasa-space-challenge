@@ -513,6 +513,216 @@ export const SPACECRAFT_COMPONENTS: ComponentDefinition[] = [
       scale: [1.2, 0.8, 0.05],
       offset: [0, 0, -0.65]
     }
+  },
+  {
+    id: 'bus-lunar-regolith',
+    name: 'Lunar Regolith-Shielded Bus',
+    category: 'bus',
+    subCategory: 'Shielded Chassis',
+    description: 'Regolith-composite cladding over a standard bus frame for lunar radiation and thermal shielding.',
+    massKg: 560,
+    powerGenerationW: 0,
+    powerConsumptionW: 60,
+    costMUSD: 28.0,
+    dataRateMbps: 0,
+    batteryCapacityWh: 0,
+    deltaVMps: 0,
+    reliabilityPercent: 97,
+    visualModel: {
+      shape: 'box',
+      color: '#71717a',
+      scale: [1.8, 2.0, 1.8],
+      offset: [0, 0, 0]
+    }
+  },
+  {
+    id: 'comp-flight-primary',
+    name: 'Primary Flight Computer (Single String)',
+    category: 'bus',
+    subCategory: 'Onboard Computer',
+    description: 'Single-string radiation-tolerant flight computer for guidance, navigation and housekeeping.',
+    massKg: 12,
+    powerGenerationW: 0,
+    powerConsumptionW: 25,
+    costMUSD: 6.0,
+    dataRateMbps: 0,
+    batteryCapacityWh: 0,
+    deltaVMps: 0,
+    reliabilityPercent: 95,
+    visualModel: {
+      shape: 'box',
+      color: '#e2e8f0',
+      scale: [0.2, 0.2, 0.2],
+      offset: [0, 0.4, 0]
+    }
+  },
+  {
+    id: 'comp-flight-redundant',
+    name: 'Redundant Flight Computer (Dual String)',
+    category: 'bus',
+    subCategory: 'Onboard Computer',
+    description: 'Dual-string flight computer with hot-spare failover for critical mission phases.',
+    massKg: 22,
+    powerGenerationW: 0,
+    powerConsumptionW: 45,
+    costMUSD: 14.0,
+    dataRateMbps: 0,
+    batteryCapacityWh: 0,
+    deltaVMps: 0,
+    reliabilityPercent: 99.5,
+    visualModel: {
+      shape: 'box',
+      color: '#cbd5e1',
+      scale: [0.35, 0.3, 0.2],
+      offset: [0, 0.4, 0]
+    }
+  },
+  {
+    id: 'storage-solid-state-recorder',
+    name: 'Solid-State Data Recorder (256 Gb)',
+    category: 'power',
+    subCategory: 'Data Storage',
+    description: 'Solid-state mass memory for buffering science data before downlink.',
+    massKg: 8,
+    powerGenerationW: 0,
+    powerConsumptionW: 12,
+    costMUSD: 3.0,
+    dataRateMbps: 0,
+    batteryCapacityWh: 0,
+    deltaVMps: 0,
+    reliabilityPercent: 96,
+    visualModel: {
+      shape: 'box',
+      color: '#1e293b',
+      scale: [0.25, 0.25, 0.25],
+      offset: [0, 0.3, 0]
+    }
+  },
+  {
+    id: 'storage-high-density-recorder',
+    name: 'High-Density Data Recorder (1 Tb)',
+    category: 'power',
+    subCategory: 'Data Storage',
+    description: 'High-density mass memory for large imaging and radar datasets.',
+    massKg: 15,
+    powerGenerationW: 0,
+    powerConsumptionW: 18,
+    costMUSD: 7.5,
+    dataRateMbps: 0,
+    batteryCapacityWh: 0,
+    deltaVMps: 0,
+    reliabilityPercent: 94,
+    visualModel: {
+      shape: 'box',
+      color: '#334155',
+      scale: [0.35, 0.3, 0.3],
+      offset: [0, 0.3, 0]
+    }
+  },
+  {
+    id: 'aocs-magnetorquers',
+    name: 'Magnetic Torquer Rod Set',
+    category: 'thermal_aocs',
+    subCategory: 'Magnetic Attitude Control',
+    description: "Electromagnetic rods for momentum desaturation and coarse pointing using Earth's magnetic field.",
+    massKg: 6,
+    powerGenerationW: 0,
+    powerConsumptionW: 18,
+    costMUSD: 2.0,
+    dataRateMbps: 0,
+    batteryCapacityWh: 0,
+    deltaVMps: 0,
+    reliabilityPercent: 99,
+    visualModel: {
+      shape: 'box',
+      color: '#64748b',
+      scale: [0.2, 0.2, 0.6],
+      offset: [0, 0, 0]
+    }
+  },
+  {
+    id: 'aocs-thruster-cluster',
+    name: 'Cold-Gas Thruster Cluster',
+    category: 'thermal_aocs',
+    subCategory: 'Thruster Attitude Control',
+    description: 'Cold-gas thrusters for fast attitude slews and fine pointing without reaction wheels.',
+    massKg: 18,
+    powerGenerationW: 0,
+    powerConsumptionW: 30,
+    costMUSD: 9.0,
+    dataRateMbps: 0,
+    batteryCapacityWh: 0,
+    deltaVMps: 25,
+    reliabilityPercent: 96,
+    visualModel: {
+      shape: 'thruster',
+      color: '#e11d48',
+      scale: [0.35, 0.35, 0.35],
+      offset: [0, -0.8, 0]
+    }
+  },
+  {
+    id: 'thermal-louver-panels',
+    name: 'Active Thermal Louver Panels',
+    category: 'thermal_aocs',
+    subCategory: 'Thermal Control',
+    description: 'Bimetallic active louvers that open and close to reject or retain waste heat.',
+    massKg: 10,
+    powerGenerationW: 0,
+    powerConsumptionW: 8,
+    costMUSD: 4.0,
+    dataRateMbps: 0,
+    batteryCapacityWh: 0,
+    deltaVMps: 0,
+    reliabilityPercent: 99,
+    visualModel: {
+      shape: 'box',
+      color: '#f1f5f9',
+      scale: [1.0, 0.6, 0.08],
+      offset: [0, 0, -0.55]
+    }
+  },
+  {
+    id: 'inst-optical-camera',
+    name: 'High-Resolution Optical Camera',
+    category: 'instruments',
+    subCategory: 'Optical Camera',
+    description: 'Narrow-field visible-light telescope for high-resolution surface imaging.',
+    massKg: 30,
+    powerGenerationW: 0,
+    powerConsumptionW: 45,
+    costMUSD: 12.0,
+    dataRateMbps: 20,
+    batteryCapacityWh: 0,
+    deltaVMps: 0,
+    reliabilityPercent: 97,
+    visualModel: {
+      shape: 'cylinder',
+      color: '#1e293b',
+      scale: [0.25, 0.25, 0.6],
+      offset: [0, -0.6, 0.3]
+    }
+  },
+  {
+    id: 'inst-thermal-ir-sensor',
+    name: 'Thermal Infrared Sensor',
+    category: 'instruments',
+    subCategory: 'Thermal Infrared Sensor',
+    description: 'Passive infrared imager measuring surface thermal emission and night-side temperatures.',
+    massKg: 22,
+    powerGenerationW: 0,
+    powerConsumptionW: 28,
+    costMUSD: 10.0,
+    dataRateMbps: 8,
+    batteryCapacityWh: 0,
+    deltaVMps: 0,
+    reliabilityPercent: 98,
+    visualModel: {
+      shape: 'sensor_dome',
+      color: '#059669',
+      scale: [0.3, 0.3, 0.3],
+      offset: [0.4, -0.5, 0.4]
+    }
   }
 ];
 
@@ -802,3 +1012,37 @@ export const MISSION_EVENTS: MissionEvent[] = [
     ]
   }
 ];
+
+export const SCENARIO_COMPATIBILITY: Record<
+  string,
+  { allowedComponentIds: string[]; notes: string }
+> = {
+  'scenario-earth-sentinel': {
+    allowedComponentIds: [
+      'bus-smallsat-standard',
+      'comp-flight-primary',
+      'power-solar-standard-wings',
+      'power-batt-li-ion',
+      'storage-solid-state-recorder',
+      'comms-ka-dish',
+      'inst-multispectral-imager',
+      'inst-synthetic-aperture-radar',
+      'aocs-reaction-wheels',
+      'aocs-heat-pipe-radiators',
+      'thermal-louver-panels'
+    ],
+    notes: 'Earth Sentinel: full allowed-parts configuration for SSO climate mission.'
+  },
+  'scenario-artemis-prospector': {
+    allowedComponentIds: [],
+    notes: 'Lunar Frontier: configurable entry, no parts pre-restricted.'
+  },
+  'scenario-ares-recon': {
+    allowedComponentIds: [],
+    notes: 'Mars Odyssey: configurable entry, no parts pre-restricted.'
+  },
+  'scenario-nea-interceptor': {
+    allowedComponentIds: [],
+    notes: 'Deep Space Sentinel: configurable entry, no parts pre-restricted.'
+  }
+};
