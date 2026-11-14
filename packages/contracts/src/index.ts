@@ -337,6 +337,14 @@ export const MissionRoomSchema = z.object({
   status: RoomStatusSchema,
   maxPlayers: z.number().default(4),
   revision: z.number().default(1),
+  lastUpdatedBy: z
+    .object({
+      memberId: z.string(),
+      name: z.string(),
+      role: EngineerRoleSchema,
+      action: z.string()
+    })
+    .optional(),
   createdAt: z.string(),
   updatedAt: z.string()
 });
@@ -405,6 +413,48 @@ export const AdvanceLobbyInputSchema = z.object({
 });
 export type AdvanceLobbyInput = z.infer<typeof AdvanceLobbyInputSchema>;
 
+// Phase 2 Collaborative Mission Planning Schemas
+export const GetPlanInputSchema = z.object({
+  roomCode: z.string().trim().min(1, 'Room code is required')
+});
+export type GetPlanInput = z.infer<typeof GetPlanInputSchema>;
+
+export const UpdateScenarioInputSchema = z.object({
+  roomCode: z.string().trim().min(1, 'Room code is required'),
+  scenarioId: z.string().trim().min(1, 'Scenario ID is required'),
+  baseRevision: z.number().int().nonnegative('Base revision must be non-negative').optional(),
+  requestId: z.string().optional()
+});
+export type UpdateScenarioInput = z.infer<typeof UpdateScenarioInputSchema>;
+
+export const PartialDesignPayloadSchema = z.object({
+  name: z.string().trim().min(1).max(64).optional(),
+  busId: z.string().optional(),
+  selectedComponentIds: z.array(z.string()).min(1, 'At least one component is required')
+});
+
+export const UpdateDesignInputSchema = z.object({
+  roomCode: z.string().trim().min(1, 'Room code is required'),
+  design: SpacecraftDesignSchema.or(PartialDesignPayloadSchema),
+  baseRevision: z.number().int().nonnegative('Base revision must be non-negative').optional(),
+  requestId: z.string().optional()
+});
+export type UpdateDesignInput = z.infer<typeof UpdateDesignInputSchema>;
+
+export const PartialLaunchPayloadSchema = z.object({
+  vehicleId: z.string().min(1, 'Vehicle ID is required'),
+  orbitId: z.string().min(1, 'Orbit ID is required'),
+  launchSite: z.string().optional()
+});
+
+export const UpdateLaunchInputSchema = z.object({
+  roomCode: z.string().trim().min(1, 'Room code is required'),
+  launchConfig: LaunchConfigurationSchema.or(PartialLaunchPayloadSchema),
+  baseRevision: z.number().int().nonnegative('Base revision must be non-negative').optional(),
+  requestId: z.string().optional()
+});
+export type UpdateLaunchInput = z.infer<typeof UpdateLaunchInputSchema>;
+
 // Socket Payload Types
 export interface SocketEventsClientToServer {
   'room:create': (
@@ -435,9 +485,22 @@ export interface SocketEventsClientToServer {
     data: RoomLeaveInput,
     callback?: (res: SocketResponse<{ message: string }>) => void
   ) => void;
-  'scenario:select': (data: { roomCode: string; scenarioId: string }) => void;
-  'design:update': (data: { roomCode: string; design: SpacecraftDesign }) => void;
-  'launch:configure': (data: { roomCode: string; launchConfig: LaunchConfiguration }) => void;
+  'plan:get': (
+    data: GetPlanInput,
+    callback?: (res: SocketResponse<{ room: MissionRoom }>) => void
+  ) => void;
+  'scenario:select': (
+    data: UpdateScenarioInput,
+    callback?: (res: SocketResponse<{ room: MissionRoom }>) => void
+  ) => void;
+  'design:update': (
+    data: UpdateDesignInput,
+    callback?: (res: SocketResponse<{ room: MissionRoom }>) => void
+  ) => void;
+  'launch:configure': (
+    data: UpdateLaunchInput,
+    callback?: (res: SocketResponse<{ room: MissionRoom }>) => void
+  ) => void;
   'mission:startLaunch': (data: { roomCode: string }) => void;
   'mission:eventChoice': (data: { roomCode: string; eventId: string; choiceId: string }) => void;
   'mission:setSpeed': (data: { roomCode: string; speedMultiplier: number }) => void;
@@ -449,6 +512,7 @@ export interface SocketEventsServerToClient {
   'room:updated': (room: MissionRoom) => void;
   'room:presence': (data: { memberId: string; name: string; connected: boolean; timestamp: string }) => void;
   'room:hostChanged': (data: { previousHostId: string; newHostId: string; newHostName: string }) => void;
+  'plan:rejected': (data: { code: string; message: string; room?: MissionRoom }) => void;
   'simulation:tick': (state: MissionSimulationState) => void;
   'mission:eventTriggered': (event: MissionEvent) => void;
   'mission:eventResolved': (data: { eventId: string; choiceId: string; success: boolean; message: string }) => void;
