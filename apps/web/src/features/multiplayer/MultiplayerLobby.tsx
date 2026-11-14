@@ -2,23 +2,29 @@ import React, { useState } from 'react';
 import { useGameStore } from '../../store/gameStore';
 import { EngineerRole } from '@orbital/contracts';
 import {
+  advanceLobbySocket,
   createRoom,
   joinRoom,
+  leaveRoomSocket,
   setMemberReady,
-  setMemberRole,
-  startLaunchSocket
+  setMemberRole
 } from '../../services/socket';
 import {
+  AlertCircle,
+  ArrowRight,
   Check,
   CheckCircle2,
   Copy,
+  LogOut,
   MessageSquare,
   Radio,
   Rocket,
   Send,
   Shield,
   UserCheck,
-  Users
+  Users,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
 
 const ROLES: { id: EngineerRole; title: string; desc: string; color: string }[] = [
@@ -54,8 +60,10 @@ export function MultiplayerLobby() {
     setActiveRoom,
     currentMemberId,
     setCurrentMemberId,
+    setResumeToken,
     currentRole,
     setCurrentRole,
+    allReady,
     chatMessages,
     sendChat,
     setActiveTab
@@ -65,39 +73,52 @@ export function MultiplayerLobby() {
   const [roomCodeInput, setRoomCodeInput] = useState('');
   const [chatInput, setChatInput] = useState('');
   const [copied, setCopied] = useState(false);
-  const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [statusMsg, setStatusMsg] = useState<{ text: string; isError: boolean } | null>(null);
 
   const handleCreate = () => {
     if (!userName.trim()) {
-      setStatusMsg('Please enter your Engineer Call-sign.');
+      setStatusMsg({ text: 'Please enter your Engineer Call-sign.', isError: true });
       return;
     }
-    createRoom(userName, `${userName}'s Mission`, (res) => {
-      if (res.success && res.room) {
-        setActiveRoom(res.room);
-        setCurrentMemberId(res.memberId || null);
+    createRoom(userName.trim(), `${userName.trim()}'s Mission`, (res) => {
+      if (res.success && res.data) {
+        setActiveRoom(res.data.room);
+        setCurrentMemberId(res.data.session.memberId);
+        setResumeToken(res.data.session.resumeToken);
         setCurrentRole('FLIGHT_DIRECTOR');
         setStatusMsg(null);
       } else {
-        setStatusMsg(res.error || 'Failed to create room.');
+        setStatusMsg({ text: res.error?.message || 'Failed to create room.', isError: true });
       }
     });
   };
 
   const handleJoin = () => {
     if (!userName.trim() || !roomCodeInput.trim()) {
-      setStatusMsg('Please enter both your Call-sign and Room Code.');
+      setStatusMsg({ text: 'Please enter both your Call-sign and Room Code.', isError: true });
       return;
     }
-    joinRoom(roomCodeInput.toUpperCase(), userName, currentRole, (res) => {
-      if (res.success && res.room) {
-        setActiveRoom(res.room);
-        setCurrentMemberId(res.memberId || null);
+    joinRoom(roomCodeInput.toUpperCase().trim(), userName.trim(), currentRole, (res) => {
+      if (res.success && res.data) {
+        setActiveRoom(res.data.room);
+        setCurrentMemberId(res.data.session.memberId);
+        setResumeToken(res.data.session.resumeToken);
+        setCurrentRole(res.data.session.role);
         setStatusMsg(null);
       } else {
-        setStatusMsg(res.error || 'Failed to join room.');
+        setStatusMsg({ text: res.error?.message || 'Failed to join room.', isError: true });
       }
     });
+  };
+
+  const handleLeave = () => {
+    if (activeRoom) {
+      leaveRoomSocket(activeRoom.code, () => {
+        setActiveRoom(null);
+        setCurrentMemberId(null);
+        setResumeToken(null);
+      });
+    }
   };
 
   const handleCopyCode = () => {
@@ -116,30 +137,60 @@ export function MultiplayerLobby() {
     }
   };
 
+  const handleAdvanceLobby = () => {
+    if (!activeRoom) return;
+    advanceLobbySocket(activeRoom.code, (res) => {
+      if (res.success && res.data?.room) {
+        setActiveRoom(res.data.room);
+        setActiveTab('lab');
+      } else {
+        setStatusMsg({ text: res.error?.message || 'Cannot advance lobby.', isError: true });
+      }
+    });
+  };
+
   const currentMember = activeRoom?.members.find((m) => m.id === currentMemberId);
-  const isHost = currentMember?.isHost || false;
+  const isHost = currentMember?.isHost || (activeRoom?.hostId === currentMemberId);
 
   return (
     <div className="space-y-6 animate-fadeIn">
       {/* Header */}
-      <div className="bg-space-900 border border-slate-800 p-6 rounded-3xl shadow-lg">
-        <div className="flex items-center space-x-2 text-xs font-mono text-cyan-400 mb-1">
-          <span>M05 // MULTIPLAYER COLLABORATION</span>
-          <span>•</span>
-          <span>SYNCHRONIZED TEAM OPERATIONS</span>
+      <div className="bg-space-900 border border-slate-800 p-6 rounded-3xl shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center space-x-2 text-xs font-mono text-cyan-400 mb-1">
+            <span>M05 // MULTIPLAYER COLLABORATION</span>
+            <span>•</span>
+            <span>PHASE 1: PLAYER IDENTITY & ROOM MANAGEMENT</span>
+          </div>
+          <h2 className="text-2xl lg:text-3xl font-extrabold text-white">
+            Mission Operations Crew Room
+          </h2>
+          <p className="mt-1 text-slate-300 text-sm max-w-3xl">
+            Real-time guest identity, cryptographic resume tokens, 4-player capacity enforcement, and host migration.
+          </p>
         </div>
-        <h2 className="text-2xl lg:text-3xl font-extrabold text-white">
-          Mission Operations Crew Room
-        </h2>
-        <p className="mt-2 text-slate-300 text-sm max-w-3xl">
-          Collaborate with up to 4 mission engineers in real time. Divide responsibilities between
-          Flight Command, Spacecraft Systems, Trajectory, and Science.
-        </p>
+
+        {activeRoom && (
+          <button
+            onClick={handleLeave}
+            className="px-4 py-2 rounded-xl bg-space-950 hover:bg-rose-950/80 text-rose-300 border border-rose-800 text-xs font-mono flex items-center space-x-2 transition-colors w-fit"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>LEAVE ROOM</span>
+          </button>
+        )}
       </div>
 
       {statusMsg && (
-        <div className="p-3 bg-rose-950/80 border border-rose-800 text-rose-300 rounded-xl text-xs font-mono">
-          {statusMsg}
+        <div
+          className={`p-3.5 rounded-xl text-xs font-mono flex items-center space-x-2 ${
+            statusMsg.isError
+              ? 'bg-rose-950/90 border border-rose-800 text-rose-300'
+              : 'bg-emerald-950/90 border border-emerald-800 text-emerald-300'
+          }`}
+        >
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{statusMsg.text}</span>
         </div>
       )}
 
@@ -151,11 +202,11 @@ export function MultiplayerLobby() {
             <div>
               <div className="flex items-center space-x-2 text-cyan-400 font-mono text-xs font-bold uppercase mb-3">
                 <Users className="w-4 h-4" />
-                <span>Create New Mission Room</span>
+                <span>Create Mission Room</span>
               </div>
               <h3 className="text-lg font-bold text-white mb-2">Host Mission as Flight Director</h3>
               <p className="text-xs text-slate-400 mb-4">
-                Initialize a synchronized mission control room and generate a 4-letter room code for your crew.
+                Initializes a secure room and issues an authenticated resume token. Maximum 4 engineers per mission.
               </p>
 
               <div className="space-y-3 font-mono text-xs">
@@ -165,7 +216,7 @@ export function MultiplayerLobby() {
                     type="text"
                     value={userName}
                     onChange={(e) => setUserName(e.target.value)}
-                    placeholder="e.g. Flight Commander"
+                    placeholder="e.g. Commander Shepard"
                     className="w-full bg-space-950 text-white px-3 py-2 rounded-xl border border-slate-700 focus:border-cyan-500 focus:outline-none"
                   />
                 </div>
@@ -187,9 +238,9 @@ export function MultiplayerLobby() {
                 <Radio className="w-4 h-4" />
                 <span>Join Existing Mission</span>
               </div>
-              <h3 className="text-lg font-bold text-white mb-2">Join an Active Crew</h3>
+              <h3 className="text-lg font-bold text-white mb-2">Join Flight Crew</h3>
               <p className="text-xs text-slate-400 mb-4">
-                Enter the 4-letter room code provided by your Flight Director.
+                Enter the 4-character room code from your Flight Director.
               </p>
 
               <div className="space-y-3 font-mono text-xs">
@@ -199,7 +250,7 @@ export function MultiplayerLobby() {
                     type="text"
                     value={userName}
                     onChange={(e) => setUserName(e.target.value)}
-                    placeholder="e.g. Lead Engineer"
+                    placeholder="e.g. Flight Engineer"
                     className="w-full bg-space-950 text-white px-3 py-2 rounded-xl border border-slate-700 focus:border-cyan-500 focus:outline-none"
                   />
                 </div>
@@ -210,7 +261,7 @@ export function MultiplayerLobby() {
                     maxLength={6}
                     value={roomCodeInput}
                     onChange={(e) => setRoomCodeInput(e.target.value.toUpperCase())}
-                    placeholder="e.g. NOVA"
+                    placeholder="e.g. 7KNP"
                     className="w-full bg-space-950 text-white px-3 py-2 rounded-xl border border-slate-700 focus:border-cyan-500 focus:outline-none uppercase tracking-widest text-center font-bold"
                   />
                 </div>
@@ -230,12 +281,15 @@ export function MultiplayerLobby() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Left: Crew Roster & Roles */}
           <div className="lg:col-span-7 space-y-6">
-            {/* Room Code Banner */}
+            {/* Room Code & Status Banner */}
             <div className="bg-space-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex items-center justify-between">
               <div>
                 <span className="text-xs font-mono text-slate-400 block">ROOM CODE</span>
                 <span className="text-3xl font-extrabold font-mono text-cyan-400 tracking-widest">
                   {activeRoom.code}
+                </span>
+                <span className="text-xs font-mono text-slate-400 block mt-1">
+                  STATUS: <span className="text-cyan-300 font-bold">{activeRoom.status}</span> (REV {activeRoom.revision})
                 </span>
               </div>
               <button
@@ -247,11 +301,11 @@ export function MultiplayerLobby() {
               </button>
             </div>
 
-            {/* Crew Members List */}
+            {/* Crew Members List with Presence Status */}
             <div className="bg-space-900 border border-slate-800 rounded-3xl p-6 shadow-xl">
               <h3 className="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center space-x-2">
                 <Users className="w-4 h-4 text-cyan-400" />
-                <span>Flight Crew Manifest ({activeRoom.members.length} / 4 Engineers)</span>
+                <span>Flight Crew Manifest ({activeRoom.members.length} / {activeRoom.maxPlayers} Engineers)</span>
               </h3>
 
               <div className="space-y-3">
@@ -262,18 +316,34 @@ export function MultiplayerLobby() {
                   >
                     <div>
                       <div className="flex items-center space-x-2">
+                        {/* Presence Indicator */}
+                        {member.connected ? (
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" title="Connected" />
+                        ) : (
+                          <span className="w-2.5 h-2.5 rounded-full bg-amber-400" title="Disconnected (Grace Period Active)" />
+                        )}
+
                         <span className="font-bold text-white text-sm">{member.name}</span>
+
                         {member.isHost && (
-                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800">
-                            COMMANDER
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800 font-bold">
+                            HOST / COMMANDER
                           </span>
                         )}
+
                         {member.id === currentMemberId && (
                           <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800">
                             YOU
                           </span>
                         )}
+
+                        {!member.connected && (
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-800">
+                            DISCONNECTED (RECONNECTING...)
+                          </span>
+                        )}
                       </div>
+
                       <div className="text-xs font-mono text-cyan-400 mt-1">
                         ROLE: {member.role.replace('_', ' ')}
                       </div>
@@ -294,31 +364,48 @@ export function MultiplayerLobby() {
                 ))}
               </div>
 
-              {/* Role Selection Grid for current user */}
+              {/* Role Selection Grid */}
               <div className="mt-6 pt-6 border-t border-slate-800">
                 <h4 className="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider mb-3">
-                  Assign Engineering Responsibility
+                  Assign Your Engineering Responsibility
                 </h4>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                   {ROLES.map((r) => {
                     const isSelected = currentRole === r.id;
+                    const takenByOther = activeRoom.members.some(
+                      (m) => m.id !== currentMemberId && m.connected && m.role === r.id
+                    );
+
                     return (
                       <button
                         key={r.id}
+                        disabled={takenByOther}
                         onClick={() => {
-                          setCurrentRole(r.id);
-                          if (currentMemberId) {
-                            setMemberRole(activeRoom.code, currentMemberId, r.id);
-                          }
+                          setMemberRole(activeRoom.code, r.id, (res) => {
+                            if (res.success && res.data?.room) {
+                              setActiveRoom(res.data.room);
+                              setCurrentRole(r.id);
+                              setStatusMsg(null);
+                            } else {
+                              setStatusMsg({ text: res.error?.message || 'Failed to assign role.', isError: true });
+                            }
+                          });
                         }}
                         className={`text-left p-3 rounded-xl border text-xs font-mono transition-all ${
-                          isSelected
-                            ? `${r.color} font-bold`
-                            : 'bg-space-950 border-slate-800 text-slate-400 hover:text-white'
+                          takenByOther
+                            ? 'bg-space-950/40 border-slate-900 text-slate-600 cursor-not-allowed'
+                            : isSelected
+                              ? `${r.color} font-bold`
+                              : 'bg-space-950 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
                         }`}
                       >
-                        <div className="font-bold mb-1">{r.title}</div>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-bold">{r.title}</span>
+                          {takenByOther && (
+                            <span className="text-[10px] text-slate-500 font-mono">ASSIGNED</span>
+                          )}
+                        </div>
                         <div className="text-[11px] text-slate-400 font-normal">{r.desc}</div>
                       </button>
                     );
@@ -326,13 +413,19 @@ export function MultiplayerLobby() {
                 </div>
               </div>
 
-              {/* Ready & Launch Actions */}
-              <div className="mt-6 pt-6 border-t border-slate-800 flex items-center justify-between">
+              {/* Readiness & Host Stage Advancement Actions */}
+              <div className="mt-6 pt-6 border-t border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <button
                   onClick={() => {
-                    if (currentMemberId) {
-                      setMemberReady(activeRoom.code, currentMemberId, !currentMember?.isReady);
-                    }
+                    const nextReady = !currentMember?.isReady;
+                    setMemberReady(activeRoom.code, nextReady, (res) => {
+                      if (res.success && res.data?.room) {
+                        setActiveRoom(res.data.room);
+                        setStatusMsg(null);
+                      } else {
+                        setStatusMsg({ text: res.error?.message || 'Could not change readiness.', isError: true });
+                      }
+                    });
                   }}
                   className={`px-5 py-2.5 rounded-xl font-mono text-xs font-bold border transition-colors ${
                     currentMember?.isReady
@@ -340,18 +433,31 @@ export function MultiplayerLobby() {
                       : 'bg-space-950 text-slate-300 border-slate-700 hover:border-slate-500'
                   }`}
                 >
-                  {currentMember?.isReady ? 'STATUS: READY' : 'MARK READY'}
+                  {currentMember?.isReady ? 'STATUS: READY (CLICK TO UNREADY)' : 'MARK READY'}
                 </button>
 
-                <button
-                  onClick={() => {
-                    startLaunchSocket(activeRoom.code);
-                    setActiveTab('ops');
-                  }}
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-500 hover:from-emerald-300 hover:to-cyan-400 text-black font-extrabold font-mono text-xs shadow-lg glow-cyan"
-                >
-                  COMMENCE MULTIPLAYER LAUNCH
-                </button>
+                {isHost ? (
+                  <button
+                    disabled={!allReady}
+                    onClick={handleAdvanceLobby}
+                    className={`px-6 py-2.5 rounded-xl font-extrabold font-mono text-xs shadow-lg transition-all flex items-center space-x-2 ${
+                      allReady
+                        ? 'bg-gradient-to-r from-emerald-400 to-cyan-500 hover:from-emerald-300 hover:to-cyan-400 text-black glow-cyan'
+                        : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                    }`}
+                  >
+                    <span>ADVANCE LOBBY TO MISSION SETUP</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                ) : (
+                  <div className="text-xs font-mono text-slate-400 flex items-center space-x-2">
+                    {allReady ? (
+                      <span className="text-emerald-400">All crew ready. Awaiting Flight Director...</span>
+                    ) : (
+                      <span>Waiting for all crew to mark READY</span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -366,8 +472,8 @@ export function MultiplayerLobby() {
             {/* Chat Messages */}
             <div className="flex-1 bg-space-950 rounded-2xl border border-slate-800/80 p-4 overflow-y-auto space-y-3 font-mono text-xs">
               {chatMessages.length === 0 ? (
-                <div className="text-slate-400 text-center py-12">
-                  Radio channel active. Transmit commands to your engineering team.
+                <div className="text-slate-500 text-center py-12">
+                  Radio channel active. Transmit commands to your engineering crew.
                 </div>
               ) : (
                 chatMessages.map((msg) => (

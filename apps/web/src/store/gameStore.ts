@@ -77,11 +77,15 @@ interface GameState {
   // Multiplayer
   activeRoom: MissionRoom | null;
   currentMemberId: string | null;
+  resumeToken: string | null;
   currentRole: EngineerRole;
+  allReady: boolean;
   chatMessages: { id: string; sender: string; role: EngineerRole; message: string; timestamp: string }[];
   setActiveRoom: (room: MissionRoom | null) => void;
   setCurrentMemberId: (id: string | null) => void;
+  setResumeToken: (token: string | null) => void;
   setCurrentRole: (role: EngineerRole) => void;
+  setAllReady: (allReady: boolean) => void;
   addChatMessage: (msg: { id: string; sender: string; role: EngineerRole; message: string; timestamp: string }) => void;
   sendChat: (message: string) => void;
 
@@ -325,11 +329,30 @@ export const useGameStore = create<GameState>((set, get) => ({
   // Multiplayer
   activeRoom: null,
   currentMemberId: null,
+  resumeToken: null,
   currentRole: 'FLIGHT_DIRECTOR',
+  allReady: false,
   chatMessages: [],
-  setActiveRoom: (room) => set({ activeRoom: room }),
+  setActiveRoom: (room) => {
+    if (!room) {
+      set({ activeRoom: null, allReady: false });
+      return;
+    }
+    const memberId = get().currentMemberId;
+    const self = room.members.find((m) => m.id === memberId);
+    const connectedMembers = room.members.filter((m) => m.connected);
+    const isAllReady = connectedMembers.length > 0 && connectedMembers.every((m) => m.isReady);
+
+    set({
+      activeRoom: room,
+      allReady: isAllReady,
+      currentRole: self ? self.role : get().currentRole
+    });
+  },
   setCurrentMemberId: (id) => set({ currentMemberId: id }),
+  setResumeToken: (token: string | null) => set({ resumeToken: token }),
   setCurrentRole: (role) => set({ currentRole: role }),
+  setAllReady: (allReady: boolean) => set({ allReady }),
   addChatMessage: (msg) => set((s) => ({ chatMessages: [...s.chatMessages.slice(-40), msg] })),
   sendChat: (message) => {
     const { activeRoom, currentRole } = get();

@@ -303,13 +303,26 @@ export const EngineerRoleSchema = z.enum([
 ]);
 export type EngineerRole = z.infer<typeof EngineerRoleSchema>;
 
+export const RoomStatusSchema = z.enum([
+  'LOBBY',
+  'MISSION_SETUP',
+  'DESIGNING',
+  'LAUNCH_READY',
+  'ACTIVE_MISSION',
+  'DEBRIEF',
+  'CLOSED'
+]);
+export type RoomStatus = z.infer<typeof RoomStatusSchema>;
+
 export const TeamMemberSchema = z.object({
   id: z.string(),
   name: z.string(),
   role: EngineerRoleSchema,
   isReady: z.boolean().default(false),
   isHost: z.boolean().default(false),
-  joinedAt: z.string()
+  connected: z.boolean().default(true),
+  joinedAt: z.string(),
+  lastActiveAt: z.string().optional()
 });
 export type TeamMember = z.infer<typeof TeamMemberSchema>;
 
@@ -321,18 +334,107 @@ export const MissionRoomSchema = z.object({
   design: SpacecraftDesignSchema.nullable(),
   launchConfig: LaunchConfigurationSchema.nullable(),
   members: z.array(TeamMemberSchema),
-  status: z.enum(['LOBBY', 'DESIGN', 'LAUNCH_PREP', 'ACTIVE_MISSION', 'DEBRIEF']),
+  status: RoomStatusSchema,
+  maxPlayers: z.number().default(4),
+  revision: z.number().default(1),
   createdAt: z.string(),
   updatedAt: z.string()
 });
 export type MissionRoom = z.infer<typeof MissionRoomSchema>;
 
+// Standard Socket.IO Acknowledgement Response
+export interface SocketResponse<T = unknown> {
+  success: boolean;
+  data?: T;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
+// Session Identity Information issued to participant (NOT broadcast)
+export interface ParticipantSession {
+  memberId: string;
+  resumeToken: string;
+  roomCode: string;
+  name: string;
+  role: EngineerRole;
+  isHost: boolean;
+}
+
+// Client to Server Input Payloads
+export const RoomCreateInputSchema = z.object({
+  hostName: z.string().trim().min(1, 'Display name is required').max(32, 'Display name too long'),
+  roomName: z.string().trim().max(48, 'Room name too long').optional()
+});
+export type RoomCreateInput = z.infer<typeof RoomCreateInputSchema>;
+
+export const RoomJoinInputSchema = z.object({
+  roomCode: z.string().trim().min(1, 'Room code is required'),
+  name: z.string().trim().min(1, 'Display name is required').max(32, 'Display name too long'),
+  role: EngineerRoleSchema.optional()
+});
+export type RoomJoinInput = z.infer<typeof RoomJoinInputSchema>;
+
+export const RoomReconnectInputSchema = z.object({
+  roomCode: z.string().trim().min(1, 'Room code is required'),
+  memberId: z.string().uuid('Invalid member ID format'),
+  resumeToken: z.string().min(16, 'Invalid resume token format')
+});
+export type RoomReconnectInput = z.infer<typeof RoomReconnectInputSchema>;
+
+export const SetRoleInputSchema = z.object({
+  roomCode: z.string().trim().min(1, 'Room code is required'),
+  role: EngineerRoleSchema
+});
+export type SetRoleInput = z.infer<typeof SetRoleInputSchema>;
+
+export const SetReadyInputSchema = z.object({
+  roomCode: z.string().trim().min(1, 'Room code is required'),
+  isReady: z.boolean()
+});
+export type SetReadyInput = z.infer<typeof SetReadyInputSchema>;
+
+export const RoomLeaveInputSchema = z.object({
+  roomCode: z.string().trim().min(1, 'Room code is required')
+});
+export type RoomLeaveInput = z.infer<typeof RoomLeaveInputSchema>;
+
+export const AdvanceLobbyInputSchema = z.object({
+  roomCode: z.string().trim().min(1, 'Room code is required')
+});
+export type AdvanceLobbyInput = z.infer<typeof AdvanceLobbyInputSchema>;
+
 // Socket Payload Types
 export interface SocketEventsClientToServer {
-  'room:create': (data: { hostName: string; roomName: string }, callback: (res: { success: boolean; room?: MissionRoom; memberId?: string; error?: string }) => void) => void;
-  'room:join': (data: { roomCode: string; name: string; role?: EngineerRole }, callback: (res: { success: boolean; room?: MissionRoom; memberId?: string; error?: string }) => void) => void;
-  'room:setRole': (data: { roomCode: string; memberId: string; role: EngineerRole }) => void;
-  'room:setReady': (data: { roomCode: string; memberId: string; isReady: boolean }) => void;
+  'room:create': (
+    data: RoomCreateInput,
+    callback: (res: SocketResponse<{ room: MissionRoom; session: ParticipantSession }>) => void
+  ) => void;
+  'room:join': (
+    data: RoomJoinInput,
+    callback: (res: SocketResponse<{ room: MissionRoom; session: ParticipantSession }>) => void
+  ) => void;
+  'room:reconnect': (
+    data: RoomReconnectInput,
+    callback: (res: SocketResponse<{ room: MissionRoom; session: ParticipantSession }>) => void
+  ) => void;
+  'room:setRole': (
+    data: SetRoleInput,
+    callback?: (res: SocketResponse<{ room: MissionRoom }>) => void
+  ) => void;
+  'room:setReady': (
+    data: SetReadyInput,
+    callback?: (res: SocketResponse<{ room: MissionRoom; allReady: boolean }>) => void
+  ) => void;
+  'room:advanceLobby': (
+    data: AdvanceLobbyInput,
+    callback?: (res: SocketResponse<{ room: MissionRoom }>) => void
+  ) => void;
+  'room:leave': (
+    data: RoomLeaveInput,
+    callback?: (res: SocketResponse<{ message: string }>) => void
+  ) => void;
   'scenario:select': (data: { roomCode: string; scenarioId: string }) => void;
   'design:update': (data: { roomCode: string; design: SpacecraftDesign }) => void;
   'launch:configure': (data: { roomCode: string; launchConfig: LaunchConfiguration }) => void;
@@ -345,6 +447,8 @@ export interface SocketEventsClientToServer {
 
 export interface SocketEventsServerToClient {
   'room:updated': (room: MissionRoom) => void;
+  'room:presence': (data: { memberId: string; name: string; connected: boolean; timestamp: string }) => void;
+  'room:hostChanged': (data: { previousHostId: string; newHostId: string; newHostName: string }) => void;
   'simulation:tick': (state: MissionSimulationState) => void;
   'mission:eventTriggered': (event: MissionEvent) => void;
   'mission:eventResolved': (data: { eventId: string; choiceId: string; success: boolean; message: string }) => void;

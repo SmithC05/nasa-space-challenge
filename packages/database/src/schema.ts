@@ -54,6 +54,8 @@ export const missionRoomsTable = pgTable('mission_rooms', {
   hostId: text('host_id').notNull(),
   scenarioId: text('scenario_id'),
   status: text('status').notNull().default('LOBBY'),
+  maxPlayers: integer('max_players').notNull().default(4),
+  revision: integer('revision').notNull().default(1),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull()
 });
@@ -65,7 +67,10 @@ export const teamMembersTable = pgTable('team_members', {
   role: text('role').notNull(),
   isReady: boolean('is_ready').notNull().default(false),
   isHost: boolean('is_host').notNull().default(false),
-  joinedAt: text('joined_at').notNull()
+  connected: boolean('connected').notNull().default(true),
+  tokenHash: text('token_hash'),
+  joinedAt: text('joined_at').notNull(),
+  lastActiveAt: text('last_active_at')
 });
 
 export const missionReportsTable = pgTable('mission_reports', {

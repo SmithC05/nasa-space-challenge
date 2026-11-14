@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getDatabase, missionRoomsTable, teamMembersTable } from '@orbital/database';
+import { roomService } from '../services/roomService';
 import { eq } from 'drizzle-orm';
 
 export const roomsRouter = Router();
@@ -15,9 +16,17 @@ roomsRouter.get('/', async (_req, res) => {
 });
 
 roomsRouter.get('/:code', async (req, res) => {
+  const code = (req.params.code || '').trim().toUpperCase();
+
+  // Check active in-memory room first
+  const activeSnapshot = roomService.getRoomSnapshot(code);
+  if (activeSnapshot) {
+    return res.json(activeSnapshot);
+  }
+
+  // Fallback to database
   try {
     const db = getDatabase();
-    const code = req.params.code.toUpperCase();
     const rooms = await db.select().from(missionRoomsTable).where(eq(missionRoomsTable.code, code));
 
     if (rooms.length === 0) {
@@ -26,9 +35,21 @@ roomsRouter.get('/:code', async (req, res) => {
 
     const members = await db.select().from(teamMembersTable).where(eq(teamMembersTable.roomCode, code));
 
+    // Strip sensitive hashes
+    const publicMembers = members.map((m: any) => ({
+      id: m.id,
+      name: m.name,
+      role: m.role,
+      isReady: m.isReady,
+      isHost: m.isHost,
+      connected: m.connected,
+      joinedAt: m.joinedAt,
+      lastActiveAt: m.lastActiveAt
+    }));
+
     return res.json({
       ...rooms[0],
-      members
+      members: publicMembers
     });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });

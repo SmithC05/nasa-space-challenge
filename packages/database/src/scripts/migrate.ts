@@ -53,6 +53,8 @@ export async function runMigrations() {
       host_id TEXT NOT NULL,
       scenario_id TEXT,
       status TEXT NOT NULL DEFAULT 'LOBBY',
+      max_players INTEGER NOT NULL DEFAULT 4,
+      revision INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );`,
@@ -64,7 +66,10 @@ export async function runMigrations() {
       role TEXT NOT NULL,
       is_ready BOOLEAN NOT NULL DEFAULT FALSE,
       is_host BOOLEAN NOT NULL DEFAULT FALSE,
-      joined_at TEXT NOT NULL
+      connected BOOLEAN NOT NULL DEFAULT TRUE,
+      token_hash TEXT,
+      joined_at TEXT NOT NULL,
+      last_active_at TEXT
     );`,
 
     `CREATE TABLE IF NOT EXISTS mission_reports (
