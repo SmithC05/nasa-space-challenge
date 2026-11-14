@@ -170,16 +170,38 @@ export function leaveRoomSocket(
   getSocket().emit('room:leave', { roomCode }, callback);
 }
 
-export function selectScenarioSocket(roomCode: string, scenarioId: string) {
-  getSocket().emit('scenario:select', { roomCode, scenarioId });
+export function getMissionPlan(
+  roomCode: string,
+  callback?: (res: SocketResponse<{ room: MissionRoom }>) => void
+) {
+  getSocket().emit('plan:get', { roomCode }, callback);
 }
 
-export function updateDesignSocket(roomCode: string, design: SpacecraftDesign) {
-  getSocket().emit('design:update', { roomCode, design });
+export function selectScenarioSocket(
+  roomCode: string,
+  scenarioId: string,
+  baseRevision?: number,
+  callback?: (res: SocketResponse<{ room: MissionRoom }>) => void
+) {
+  getSocket().emit('scenario:select', { roomCode, scenarioId, baseRevision }, callback);
 }
 
-export function configureLaunchSocket(roomCode: string, launchConfig: LaunchConfiguration) {
-  getSocket().emit('launch:configure', { roomCode, launchConfig });
+export function updateDesignSocket(
+  roomCode: string,
+  design: SpacecraftDesign,
+  baseRevision?: number,
+  callback?: (res: SocketResponse<{ room: MissionRoom }>) => void
+) {
+  getSocket().emit('design:update', { roomCode, design, baseRevision }, callback);
+}
+
+export function configureLaunchSocket(
+  roomCode: string,
+  launchConfig: LaunchConfiguration,
+  baseRevision?: number,
+  callback?: (res: SocketResponse<{ room: MissionRoom }>) => void
+) {
+  getSocket().emit('launch:configure', { roomCode, launchConfig, baseRevision }, callback);
 }
 
 export function startLaunchSocket(roomCode: string) {

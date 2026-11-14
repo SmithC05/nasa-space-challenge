@@ -157,8 +157,11 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
 
     if (activeRoom) {
-      selectScenarioSocket(activeRoom.code, scenario.id);
-      updateDesignSocket(activeRoom.code, updatedDesign);
+      selectScenarioSocket(activeRoom.code, scenario.id, activeRoom.revision, (res) => {
+        if (!res.success && res.data?.room) {
+          get().setActiveRoom(res.data.room);
+        }
+      });
     }
   },
 
@@ -202,7 +205,11 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
 
     if (activeRoom) {
-      updateDesignSocket(activeRoom.code, updatedDesign);
+      updateDesignSocket(activeRoom.code, updatedDesign, activeRoom.revision, (res) => {
+        if (!res.success && res.data?.room) {
+          get().setActiveRoom(res.data.room);
+        }
+      });
     }
   },
 
@@ -211,7 +218,11 @@ export const useGameStore = create<GameState>((set, get) => ({
     const updatedDesign = { ...currentDesign, name, updatedAt: new Date().toISOString() };
     set({ currentDesign: updatedDesign });
     if (activeRoom) {
-      updateDesignSocket(activeRoom.code, updatedDesign);
+      updateDesignSocket(activeRoom.code, updatedDesign, activeRoom.revision, (res) => {
+        if (!res.success && res.data?.room) {
+          get().setActiveRoom(res.data.room);
+        }
+      });
     }
   },
 
@@ -232,7 +243,11 @@ export const useGameStore = create<GameState>((set, get) => ({
     );
     set({ selectedOrbit: orbit, launchConfig: updatedLaunch });
     if (activeRoom) {
-      configureLaunchSocket(activeRoom.code, updatedLaunch);
+      configureLaunchSocket(activeRoom.code, updatedLaunch, activeRoom.revision, (res) => {
+        if (!res.success && res.data?.room) {
+          get().setActiveRoom(res.data.room);
+        }
+      });
     }
   },
 
@@ -247,7 +262,11 @@ export const useGameStore = create<GameState>((set, get) => ({
     );
     set({ selectedVehicle: vehicle, launchConfig: updatedLaunch });
     if (activeRoom) {
-      configureLaunchSocket(activeRoom.code, updatedLaunch);
+      configureLaunchSocket(activeRoom.code, updatedLaunch, activeRoom.revision, (res) => {
+        if (!res.success && res.data?.room) {
+          get().setActiveRoom(res.data.room);
+        }
+      });
     }
   },
 
@@ -343,11 +362,40 @@ export const useGameStore = create<GameState>((set, get) => ({
     const connectedMembers = room.members.filter((m) => m.connected);
     const isAllReady = connectedMembers.length > 0 && connectedMembers.every((m) => m.isReady);
 
-    set({
+    const updates: Partial<GameState> = {
       activeRoom: room,
       allReady: isAllReady,
       currentRole: self ? self.role : get().currentRole
-    });
+    };
+
+    // Reconcile shared mission planning state from authoritative room snapshot
+    if (room.scenarioId) {
+      const matchedScenario = MISSION_SCENARIOS.find((s) => s.id === room.scenarioId);
+      if (matchedScenario && matchedScenario.id !== get().selectedScenario.id) {
+        updates.selectedScenario = matchedScenario;
+      }
+    }
+
+    if (room.design) {
+      updates.currentDesign = room.design;
+      if (room.design.selectedComponentIds) {
+        updates.selectedComponentIds = room.design.selectedComponentIds;
+      }
+    }
+
+    if (room.launchConfig) {
+      updates.launchConfig = room.launchConfig;
+      const matchedOrbit = ORBIT_PROFILES.find((o) => o.id === room.launchConfig?.orbitId);
+      if (matchedOrbit) {
+        updates.selectedOrbit = matchedOrbit;
+      }
+      const matchedVehicle = LAUNCH_VEHICLES.find((v) => v.id === room.launchConfig?.vehicleId);
+      if (matchedVehicle) {
+        updates.selectedVehicle = matchedVehicle;
+      }
+    }
+
+    set(updates);
   },
   setCurrentMemberId: (id) => set({ currentMemberId: id }),
   setResumeToken: (token: string | null) => set({ resumeToken: token }),
