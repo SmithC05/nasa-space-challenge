@@ -43,13 +43,15 @@ export function FlightIntegrationChecklist({
   const spacecraftMassKg = currentDesign.resources.totalMassKg;
   const spacecraftCostMUSD = currentDesign.resources.totalCostMUSD;
 
-  // Single source of truth: Evaluate full technical and budget status synchronously from selectedVehicle
+  // Single source of truth: Evaluate full technical, budget, and mission status synchronously from selectedVehicle
   const validation = getDetailedLaunchValidation(
     selectedVehicle,
     selectedOrbit,
     spacecraftMassKg,
     selectedScenario.budgetMUSD,
-    spacecraftCostMUSD
+    spacecraftCostMUSD,
+    undefined,
+    selectedScenario
   );
 
   const orbitCategory =
@@ -202,7 +204,7 @@ export function FlightIntegrationChecklist({
             </div>
           </div>
 
-          {/* 11. Technical Compatibility Status (Separated from Budget) */}
+          {/* 7. Technical Compatibility Status (Separated from Budget & Mission) */}
           <div className="bg-space-950 p-2.5 rounded-xl border border-slate-800 flex items-center justify-between">
             <span className="text-slate-500 text-[10px] uppercase">7. TECHNICAL SUITABILITY</span>
             <span
@@ -225,6 +227,51 @@ export function FlightIntegrationChecklist({
               )}
             </span>
           </div>
+
+          {/* 8. Mission Suitability & Regime Mandate */}
+          <div className="bg-space-950 p-2.5 rounded-xl border border-slate-800 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500 text-[10px] uppercase">8. MISSION SUITABILITY & MANDATE</span>
+              <span
+                className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center space-x-1 ${
+                  validation.missionSuitabilityStatus === 'OPTIMAL'
+                    ? 'text-emerald-400 bg-emerald-950/60 border border-emerald-800/60'
+                    : validation.missionSuitabilityStatus === 'ACCEPTABLE_WITH_WARNING'
+                      ? 'text-amber-400 bg-amber-950/60 border border-amber-800/60'
+                      : 'text-rose-400 bg-rose-950/60 border border-rose-800/60'
+                }`}
+              >
+                {validation.missionSuitabilityStatus === 'OPTIMAL' ? (
+                  <>
+                    <CheckCircle2 className="w-3 h-3" />
+                    <span>OPTIMAL PROFILE</span>
+                  </>
+                ) : validation.missionSuitabilityStatus === 'ACCEPTABLE_WITH_WARNING' ? (
+                  <>
+                    <AlertTriangle className="w-3 h-3" />
+                    <span>LIMITED COVERAGE</span>
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="w-3 h-3" />
+                    <span>MANDATE UNMET</span>
+                  </>
+                )}
+              </span>
+            </div>
+            <div className="text-[11px] text-slate-300">
+              {validation.missionSuitabilityReasons[0] || `${selectedOrbit.name} evaluated for ${selectedScenario.name}`}
+            </div>
+            {validation.polarCoverageSatisfied ? (
+              <div className="text-[10px] text-emerald-400 flex items-center space-x-1">
+                <span>✓ Polar Latitudes Coverage Satisfied (≥90° access)</span>
+              </div>
+            ) : (
+              <div className="text-[10px] text-amber-400/90 flex items-center space-x-1">
+                <span>⚠ No direct polar coverage (restricted to equatorial/mid latitudes)</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -237,8 +284,15 @@ export function FlightIntegrationChecklist({
               <span>LAUNCH CLEARANCE AUTHORIZED</span>
             </div>
             <p className="text-[11px] text-emerald-300/90 leading-relaxed pl-7">
-              All flight integration gates passed: positive mass margin (+{validation.payloadMarginKg} kg reserve), budget verified within allowance (${validation.totalMissionCostMUSD}M ≤ ${validation.maxBudgetWithBufferMUSD}M ceiling), flight trajectory certified for {selectedOrbit.name}.
+              All flight integration gates passed: positive mass margin (+{validation.payloadMarginKg} kg reserve), budget verified within allowance (${validation.totalMissionCostMUSD}M ≤ ${validation.maxBudgetWithBufferMUSD}M ceiling), and orbital regime certified for {selectedScenario.name}.
             </p>
+            {validation.warnings.length > 0 && (
+              <div className="mt-2 pl-7 pt-2 border-t border-emerald-800/40 text-[10px] text-amber-300 space-y-1">
+                {validation.warnings.map((w, i) => (
+                  <div key={i}>⚠ {w}</div>
+                ))}
+              </div>
+            )}
           </div>
         ) : (
           <div className="p-3 rounded-2xl bg-rose-950/30 border border-rose-800/80 text-rose-300 text-xs font-mono space-y-1.5">
@@ -247,12 +301,23 @@ export function FlightIntegrationChecklist({
               <span>LAUNCH CLEARANCE WITHHELD</span>
             </div>
             <div className="pl-7 space-y-1 text-[11px] text-rose-300/90">
-              {/* Separate technical from budget reasons */}
-              {validation.isTechnicallyCompatible && !validation.isBudgetCleared && (
+              {/* Note if technically compatible + budget cleared, but mission unsuitable */}
+              {validation.isTechnicallyCompatible && validation.isBudgetCleared && !validation.isMissionSuitable && (
+                <div className="text-amber-300 font-semibold">
+                  • Vehicle is TECHNICALLY COMPATIBLE (+{validation.payloadMarginKg} kg margin) and WITHIN BUDGET (${validation.totalMissionCostMUSD}M ≤ ${validation.maxBudgetWithBufferMUSD}M), but launch clearance is withheld because target orbit does not satisfy {selectedScenario.name} requirements.
+                </div>
+              )}
+              {/* Note if technically compatible, but budget exceeded */}
+              {validation.isTechnicallyCompatible && !validation.isBudgetCleared && validation.isMissionSuitable && (
                 <div className="text-amber-300 font-semibold">
                   • Vehicle is TECHNICALLY COMPATIBLE with {selectedOrbit.name} (+{validation.payloadMarginKg} kg margin), but launch clearance is withheld due to budget overrun.
                 </div>
               )}
+              {validation.missionErrors.map((err, i) => (
+                <div key={i} className="text-rose-400 font-bold">
+                  • {err}
+                </div>
+              ))}
               {validation.technicalErrors.map((err, i) => (
                 <div key={i} className="text-rose-400">
                   • Technical Deficit: {err}

@@ -10,10 +10,10 @@
     "lint": "echo simulation-engine lint ok"
   },
   "dependencies": {
-    "@orbital/contracts": "workspace:*"
+    "@orbital/contracts": "workspace:*",
+    "@orbital/game-data": "workspace:*"
   },
   "devDependencies": {
-    "@orbital/game-data": "workspace:*",
     "typescript": "^5.7.3"
   }
 }

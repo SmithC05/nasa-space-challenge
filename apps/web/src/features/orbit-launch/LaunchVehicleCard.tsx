@@ -1,5 +1,5 @@
 import React from 'react';
-import { LaunchVehicle, OrbitProfile, SpacecraftDesign } from '@orbital/contracts';
+import { LaunchVehicle, MissionScenario, OrbitProfile, SpacecraftDesign } from '@orbital/contracts';
 import {
   calculateVehicleOrbitCapacity,
   getDetailedLaunchValidation
@@ -24,6 +24,7 @@ interface LaunchVehicleCardProps {
   selectedOrbit: OrbitProfile;
   currentDesign: SpacecraftDesign;
   scenarioBudgetMUSD: number;
+  selectedScenario?: MissionScenario;
   onSelect: (vehicle: LaunchVehicle) => void;
 }
 
@@ -33,18 +34,21 @@ export function LaunchVehicleCard({
   selectedOrbit,
   currentDesign,
   scenarioBudgetMUSD,
+  selectedScenario,
   onSelect
 }: LaunchVehicleCardProps) {
   const spacecraftMassKg = currentDesign.resources.totalMassKg;
   const spacecraftCostMUSD = currentDesign.resources.totalCostMUSD;
 
-  // Single source of truth: evaluate technical & budget metrics synchronously
+  // Single source of truth: evaluate technical, budget & mission metrics synchronously
   const validation = getDetailedLaunchValidation(
     vehicle,
     selectedOrbit,
     spacecraftMassKg,
     scenarioBudgetMUSD,
-    spacecraftCostMUSD
+    spacecraftCostMUSD,
+    undefined,
+    selectedScenario
   );
 
   const orbitCategory =
@@ -57,6 +61,8 @@ export function LaunchVehicleCard({
     stateBorder = 'border-amber-500 bg-space-850 shadow-xl glow-amber scale-[1.01]';
   } else if (!validation.isTechnicallyCompatible) {
     stateBorder = 'border-rose-900/60 hover:border-rose-700/80 bg-rose-950/10';
+  } else if (!validation.isMissionSuitable) {
+    stateBorder = 'border-rose-900/40 hover:border-rose-700/60 bg-rose-950/5';
   } else if (!validation.isBudgetCleared) {
     stateBorder = 'border-amber-900/60 hover:border-amber-700/80 bg-amber-950/10';
   }
@@ -113,6 +119,14 @@ export function LaunchVehicleCard({
               <span className="flex items-center space-x-1 text-[10px] font-mono text-amber-400 bg-amber-950/70 border border-amber-800/70 px-1.5 py-0.5 rounded">
                 <AlertTriangle className="w-3 h-3" />
                 <span>OVER BUDGET</span>
+              </span>
+            )}
+
+            {/* Mission Suitability Badge if Unsuitable */}
+            {!validation.isMissionSuitable && (
+              <span className="flex items-center space-x-1 text-[10px] font-mono text-rose-400 bg-rose-950/70 border border-rose-800/70 px-1.5 py-0.5 rounded">
+                <XCircle className="w-3 h-3" />
+                <span>MANDATE UNMET</span>
               </span>
             )}
           </div>
@@ -179,12 +193,12 @@ export function LaunchVehicleCard({
           </div>
         </div>
 
-        {/* Card Footer: Independent Technical & Budget Clearance Indicators */}
+        {/* Card Footer: Independent Technical, Budget & Mission Clearance Indicators */}
         <div className="text-[10px] font-mono text-slate-500 flex items-center justify-between pt-1 border-t border-slate-800/60">
-          <span className="truncate max-w-[150px]" title={vehicle.simulationDisclaimer}>
+          <span className="truncate max-w-[120px]" title={vehicle.simulationDisclaimer}>
             Simulation assumption
           </span>
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-1.5">
             {validation.isTechnicallyCompatible ? (
               <span className="text-emerald-400 font-bold">● TECH OK</span>
             ) : (
@@ -194,7 +208,13 @@ export function LaunchVehicleCard({
             {validation.isBudgetCleared ? (
               <span className="text-emerald-400 font-bold">● BUDGET OK</span>
             ) : (
-              <span className="text-amber-400 font-bold">▲ BUDGET EXCEEDED</span>
+              <span className="text-amber-400 font-bold">▲ OVER BUDGET</span>
+            )}
+            <span className="text-slate-600">|</span>
+            {validation.isMissionSuitable ? (
+              <span className="text-emerald-400 font-bold">● MISSION OK</span>
+            ) : (
+              <span className="text-rose-400 font-bold">▲ MANDATE UNMET</span>
             )}
           </div>
         </div>

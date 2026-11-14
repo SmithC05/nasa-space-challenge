@@ -202,10 +202,10 @@ importers:
       '@orbital/contracts':
         specifier: workspace:*
         version: link:../contracts
-    devDependencies:
       '@orbital/game-data':
         specifier: workspace:*
         version: link:../game-data
+    devDependencies:
       typescript:
         specifier: ^5.7.3
         version: 5.9.3

@@ -1,5 +1,5 @@
 import React from 'react';
-import { LaunchVehicle, OrbitProfile, SpacecraftDesign } from '@orbital/contracts';
+import { LaunchVehicle, MissionScenario, OrbitProfile, SpacecraftDesign } from '@orbital/contracts';
 import {
   calculateVehicleOrbitCapacity,
   getDetailedLaunchValidation
@@ -27,6 +27,7 @@ interface LaunchVehicleComparisonModalProps {
   selectedOrbit: OrbitProfile;
   currentDesign: SpacecraftDesign;
   scenarioBudgetMUSD: number;
+  selectedScenario?: MissionScenario;
   onSelectVehicle: (vehicle: LaunchVehicle) => void;
 }
 
@@ -38,6 +39,7 @@ export function LaunchVehicleComparisonModal({
   selectedOrbit,
   currentDesign,
   scenarioBudgetMUSD,
+  selectedScenario,
   onSelectVehicle
 }: LaunchVehicleComparisonModalProps) {
   if (!isOpen) return null;
@@ -251,7 +253,9 @@ export function LaunchVehicleComparisonModal({
                     selectedOrbit,
                     spacecraftMassKg,
                     scenarioBudgetMUSD,
-                    spacecraftCostMUSD
+                    spacecraftCostMUSD,
+                    undefined,
+                    selectedScenario
                   );
                   return (
                     <td key={v.id} className="py-3 px-4 text-center">
@@ -271,16 +275,49 @@ export function LaunchVehicleComparisonModal({
                 })}
               </tr>
 
-              {/* 12. Budget Clearance Status */}
+              {/* 12. Mission Mandate Compatibility */}
               <tr className="bg-space-900/30">
-                <td className="py-3 px-4 text-slate-300 font-bold">Budget Status ($161M Cap)</td>
+                <td className="py-3 px-4 text-slate-300 font-bold">Mission Mandate</td>
                 {vehicles.map((v) => {
                   const val = getDetailedLaunchValidation(
                     v,
                     selectedOrbit,
                     spacecraftMassKg,
                     scenarioBudgetMUSD,
-                    spacecraftCostMUSD
+                    spacecraftCostMUSD,
+                    undefined,
+                    selectedScenario
+                  );
+                  return (
+                    <td key={v.id} className="py-3 px-4 text-center">
+                      {val.isMissionSuitable ? (
+                        <span className="text-emerald-400 font-bold flex items-center justify-center space-x-1">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>MANDATE MET</span>
+                        </span>
+                      ) : (
+                        <span className="text-rose-400 font-bold flex items-center justify-center space-x-1">
+                          <XCircle className="w-3.5 h-3.5" />
+                          <span>MANDATE UNMET</span>
+                        </span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+
+              {/* 13. Budget Clearance Status */}
+              <tr className="bg-space-900/30">
+                <td className="py-3 px-4 text-slate-300 font-bold">Budget Status</td>
+                {vehicles.map((v) => {
+                  const val = getDetailedLaunchValidation(
+                    v,
+                    selectedOrbit,
+                    spacecraftMassKg,
+                    scenarioBudgetMUSD,
+                    spacecraftCostMUSD,
+                    undefined,
+                    selectedScenario
                   );
                   return (
                     <td key={v.id} className="py-3 px-4 text-center">
@@ -298,7 +335,7 @@ export function LaunchVehicleComparisonModal({
                 })}
               </tr>
 
-              {/* 13. Overall Clearance Status */}
+              {/* 14. Overall Clearance Status */}
               <tr className="bg-space-900/40">
                 <td className="py-3 px-4 text-white font-bold uppercase">Launch Clearance Gate</td>
                 {vehicles.map((v) => {
@@ -307,7 +344,9 @@ export function LaunchVehicleComparisonModal({
                     selectedOrbit,
                     spacecraftMassKg,
                     scenarioBudgetMUSD,
-                    spacecraftCostMUSD
+                    spacecraftCostMUSD,
+                    undefined,
+                    selectedScenario
                   );
                   return (
                     <td key={v.id} className="py-3 px-4 text-center">
@@ -325,7 +364,7 @@ export function LaunchVehicleComparisonModal({
                 })}
               </tr>
 
-              {/* 14. Interactive Selection Button */}
+              {/* 15. Interactive Selection Button */}
               <tr className="bg-space-900/60">
                 <td className="py-4 px-4 text-slate-400 font-bold uppercase">Selection Action</td>
                 {vehicles.map((v) => {
@@ -335,7 +374,9 @@ export function LaunchVehicleComparisonModal({
                     selectedOrbit,
                     spacecraftMassKg,
                     scenarioBudgetMUSD,
-                    spacecraftCostMUSD
+                    spacecraftCostMUSD,
+                    undefined,
+                    selectedScenario
                   );
 
                   return (

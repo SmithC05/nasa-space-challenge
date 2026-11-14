@@ -13,6 +13,7 @@ import {
   TelemetrySnapshot,
   ValidationResult
 } from '@orbital/contracts';
+import { getOrbitProfileById } from '@orbital/game-data';
 
 // ==========================================
 // 1. ASTRODYNAMICS CONSTANTS & HELPERS
@@ -251,6 +252,211 @@ export function calculateVehicleOrbitCapacity(
   return vehicle.payloadCapacityLeoKg;
 }
 
+export type MissionSuitabilityStatus = 'OPTIMAL' | 'ACCEPTABLE_WITH_WARNING' | 'UNSUITABLE';
+
+export interface MissionSuitabilityEvaluation {
+  isMissionSuitable: boolean;
+  missionSuitabilityStatus: MissionSuitabilityStatus;
+  missionSuitabilityReasons: string[];
+  polarCoverageSatisfied: boolean;
+  missionErrors: string[];
+  warnings: string[];
+  recommendations: string[];
+}
+
+/**
+ * Evaluates whether a selected orbital regime satisfies the scientific objectives,
+ * latitudinal coverage requirements, and operational mandate of the active mission scenario.
+ * Derived from Phase 1 OrbitProfile catalog metadata.
+ */
+export function evaluateMissionSuitability(
+  orbit: OrbitProfile,
+  scenario?: MissionScenario | string
+): MissionSuitabilityEvaluation {
+  const missionErrors: string[] = [];
+  const warnings: string[] = [];
+  const recommendations: string[] = [];
+  const missionSuitabilityReasons: string[] = [];
+
+  // If no scenario specified, consider mission profile suitable by default
+  if (!scenario) {
+    return {
+      isMissionSuitable: true,
+      missionSuitabilityStatus: 'OPTIMAL',
+      missionSuitabilityReasons: ['Default flight profile: no active scenario constraints provided.'],
+      polarCoverageSatisfied: true,
+      missionErrors,
+      warnings,
+      recommendations
+    };
+  }
+
+  const scenarioId = typeof scenario === 'string' ? scenario : scenario.id;
+  const scenarioObj = typeof scenario === 'object' ? scenario : undefined;
+
+  // Retrieve Phase 1 detailed catalog profile if available
+  const detailedProfile = (orbit as any).missionSuitability
+    ? (orbit as any)
+    : getOrbitProfileById(orbit.id);
+
+  const hasPolarCoverage =
+    detailedProfile?.coverageCharacteristics?.polarCoverage ??
+    (orbit.type === 'SSO' || (orbit as any).category === 'POLAR' || orbit.id === 'orbit-polar' || orbit.inclinationDeg >= 85);
+
+  const isEarthSentinel =
+    scenarioId === 'scenario-earth-sentinel' ||
+    scenarioId.toLowerCase().includes('sentinel') ||
+    scenarioObj?.code === 'OPS-2601' ||
+    scenarioObj?.name?.toLowerCase().includes('earth sentinel');
+
+  // =========================================================================
+  // SCENARIO: Earth Sentinel: Cryo & Climate (OPS-2601)
+  // Mandate: Polar ice caps monitoring, radar observation of cryosphere
+  // =========================================================================
+  if (isEarthSentinel) {
+    // 1. Geostationary Orbit (GEO) - Explicitly Unsuitable (Blocks Launch Clearance)
+    if (orbit.type === 'GEO' || orbit.id === 'orbit-geo' || (orbit as any).category === 'GEO') {
+      const err =
+        'Mission Mandate Violation: Earth Sentinel requires polar ice cap coverage (≥90° latitude). Geostationary Orbit (GEO) is equatorial (0.0° inclination) and restricted to ±81° latitude, providing 0% visibility of Arctic and Antarctic ice sheets.';
+      missionErrors.push(err);
+      missionSuitabilityReasons.push(err);
+      recommendations.push(
+        'Select Sun-Synchronous Orbit (SSO) or Polar Orbit to satisfy mandatory polar ice cap observation requirements.'
+      );
+
+      return {
+        isMissionSuitable: false,
+        missionSuitabilityStatus: 'UNSUITABLE',
+        missionSuitabilityReasons,
+        polarCoverageSatisfied: false,
+        missionErrors,
+        warnings,
+        recommendations
+      };
+    }
+
+    // 2. Sun-Synchronous Polar Orbit (SSO) - Prime Recommended Orbit
+    if (orbit.type === 'SSO' || orbit.id === 'orbit-sso' || (orbit as any).category === 'SSO') {
+      const reason =
+        'Prime Recommended Orbit: 98.2° Sun-Synchronous Orbit satisfies all Earth Sentinel cryosphere observation requirements with 100% polar coverage and constant solar illumination angles.';
+      missionSuitabilityReasons.push(reason);
+      recommendations.push(reason);
+
+      return {
+        isMissionSuitable: true,
+        missionSuitabilityStatus: 'OPTIMAL',
+        missionSuitabilityReasons,
+        polarCoverageSatisfied: true,
+        missionErrors,
+        warnings,
+        recommendations
+      };
+    }
+
+    // 3. Polar Orbit (90°) - Viable Polar Candidate
+    if (
+      (orbit as any).category === 'POLAR' ||
+      orbit.id === 'orbit-polar' ||
+      (orbit.inclinationDeg >= 89 && orbit.inclinationDeg <= 91)
+    ) {
+      const reason =
+        'Viable Polar Candidate: 90.0° Polar Orbit provides direct pole-crossing coverage over Arctic and Antarctic ice sheets on every revolution.';
+      missionSuitabilityReasons.push(reason);
+      recommendations.push(reason);
+
+      return {
+        isMissionSuitable: true,
+        missionSuitabilityStatus: 'OPTIMAL',
+        missionSuitabilityReasons,
+        polarCoverageSatisfied: true,
+        missionErrors,
+        warnings,
+        recommendations
+      };
+    }
+
+    // 4. Low Earth Orbit (LEO, 51.6°) - Alternative Orbit with Warning
+    if (orbit.type === 'LEO' || orbit.id === 'orbit-leo') {
+      const warn =
+        'Mission Limitation: 51.6° Low Earth Orbit (LEO) provides high-revisit observation for mid-latitude climate zones and urban greenhouse gas emissions, but lacks coverage above 51.6° latitude (excludes Arctic and Antarctic ice sheets). Sun-Synchronous Orbit (SSO) is strongly recommended for primary cryosphere science goals.';
+      warnings.push(warn);
+      missionSuitabilityReasons.push(warn);
+      recommendations.push(
+        'Consider switching to Sun-Synchronous Orbit (SSO) for 100% global ice sheet coverage.'
+      );
+
+      return {
+        isMissionSuitable: true,
+        missionSuitabilityStatus: 'ACCEPTABLE_WITH_WARNING',
+        missionSuitabilityReasons,
+        polarCoverageSatisfied: false,
+        missionErrors,
+        warnings,
+        recommendations
+      };
+    }
+  }
+
+  // =========================================================================
+  // MISSION-DEPENDENT / OTHER SCENARIOS (E.g., Ares Recon, Artemis Prospector)
+  // Ensures GEO is NOT hardcoded as invalid for every mission.
+  // =========================================================================
+  if (detailedProfile?.missionSuitability?.targetScenarios?.some((s: string) => s.toLowerCase() === scenarioId.toLowerCase())) {
+    const reason = `Certified Flight Regime: ${orbit.name} is a designated primary target trajectory for scenario ${scenarioObj?.name ?? scenarioId}.`;
+    missionSuitabilityReasons.push(reason);
+    return {
+      isMissionSuitable: true,
+      missionSuitabilityStatus: 'OPTIMAL',
+      missionSuitabilityReasons,
+      polarCoverageSatisfied: hasPolarCoverage,
+      missionErrors,
+      warnings,
+      recommendations
+    };
+  }
+
+  if (scenarioObj?.targetOrbitType) {
+    if (scenarioObj.targetOrbitType === orbit.type) {
+      const reason = `Orbit matches scenario target orbit regime (${scenarioObj.targetOrbitType}).`;
+      missionSuitabilityReasons.push(reason);
+      return {
+        isMissionSuitable: true,
+        missionSuitabilityStatus: 'OPTIMAL',
+        missionSuitabilityReasons,
+        polarCoverageSatisfied: hasPolarCoverage,
+        missionErrors,
+        warnings,
+        recommendations
+      };
+    } else if (scenarioObj.targetBody !== 'Earth' && orbit.type !== 'TLI' && orbit.type !== 'GTO') {
+      const warn = `Trajectory Note: ${orbit.name} is an Earth-centric orbit, whereas scenario ${scenarioObj.name} targets ${scenarioObj.targetBody}. Additional translunar/interplanetary injection required.`;
+      warnings.push(warn);
+      missionSuitabilityReasons.push(warn);
+      return {
+        isMissionSuitable: true,
+        missionSuitabilityStatus: 'ACCEPTABLE_WITH_WARNING',
+        missionSuitabilityReasons,
+        polarCoverageSatisfied: hasPolarCoverage,
+        missionErrors,
+        warnings,
+        recommendations
+      };
+    }
+  }
+
+  // Fallback for general mission scenarios
+  missionSuitabilityReasons.push(`Trajectory compatible with mission profile.`);
+  return {
+    isMissionSuitable: true,
+    missionSuitabilityStatus: 'OPTIMAL',
+    missionSuitabilityReasons,
+    polarCoverageSatisfied: hasPolarCoverage,
+    missionErrors,
+    warnings,
+    recommendations
+  };
+}
+
 export interface DetailedLaunchValidation {
   // 1. Technical compatibility gates
   isPayloadCompatible: boolean;
@@ -264,10 +470,16 @@ export interface DetailedLaunchValidation {
   isBudgetCleared: boolean;
   budgetStatus: 'WITHIN_BUDGET' | 'CONTINGENCY_USED' | 'BUDGET_EXCEEDED';
 
-  // 3. Overall launch clearance (all technical + budget gates must pass)
+  // 3. Mission suitability gates
+  isMissionSuitable: boolean;
+  missionSuitabilityStatus: MissionSuitabilityStatus;
+  missionSuitabilityReasons: string[];
+  polarCoverageSatisfied: boolean;
+
+  // 4. Overall launch clearance (all technical + budget + mission suitability gates must pass)
   isOverallCleared: boolean;
 
-  // 4. Exact numerical metrics
+  // 5. Exact numerical metrics
   effectiveCapacityKg: number;
   payloadMarginKg: number;
   spacecraftMassKg: number;
@@ -279,17 +491,19 @@ export interface DetailedLaunchValidation {
   budgetOverrunMUSD: number;
   budgetBufferRemainingMUSD: number;
 
-  // 5. Diagnostic messages
+  // 6. Diagnostic messages
   technicalErrors: string[];
   budgetErrors: string[];
+  missionErrors: string[];
   allErrors: string[];
   warnings: string[];
   recommendations: string[];
 }
 
 /**
- * Evaluates comprehensive technical compatibility, budget clearance, and overall readiness
- * for an orbit and launch vehicle selection. Separates technical capability from cost clearance.
+ * Evaluates comprehensive technical compatibility, budget clearance, mission suitability,
+ * and overall readiness for an orbit and launch vehicle selection.
+ * Keeps vehicle payload capability, budget status, and mission suitability strictly separated.
  */
 export function getDetailedLaunchValidation(
   vehicle: LaunchVehicle,
@@ -297,7 +511,8 @@ export function getDetailedLaunchValidation(
   spacecraftMassKg: number,
   scenarioBudgetMUSD: number,
   spacecraftCostMUSD: number,
-  spacecraftDimensions?: SpacecraftDimensionsConstraint
+  spacecraftDimensions?: SpacecraftDimensionsConstraint,
+  scenario?: MissionScenario | string
 ): DetailedLaunchValidation {
   const technicalErrors: string[] = [];
   const budgetErrors: string[] = [];
@@ -404,7 +619,18 @@ export function getDetailedLaunchValidation(
     );
   }
 
-  // 5. Reliability & operations notes
+  // 5. Mission suitability evaluation (Integrated from Phase 1 catalog)
+  const suitability = evaluateMissionSuitability(orbit, scenario);
+  const isMissionSuitable = suitability.isMissionSuitable;
+  const missionSuitabilityStatus = suitability.missionSuitabilityStatus;
+  const missionSuitabilityReasons = suitability.missionSuitabilityReasons;
+  const polarCoverageSatisfied = suitability.polarCoverageSatisfied;
+  const missionErrors = suitability.missionErrors;
+
+  warnings.push(...suitability.warnings);
+  recommendations.push(...suitability.recommendations);
+
+  // 6. Reliability & operations notes
   if (vehicle.reusable) {
     recommendations.push(
       `Reusable first stage enables propulsive recovery, reducing launch service pricing and turnaround time.`
@@ -416,8 +642,9 @@ export function getDetailedLaunchValidation(
     );
   }
 
-  const allErrors = [...technicalErrors, ...budgetErrors];
-  const isOverallCleared = isTechnicallyCompatible && isBudgetCleared;
+  const allErrors = [...technicalErrors, ...budgetErrors, ...missionErrors];
+  // Overall clearance requires: technical compatibility + budget clearance + mission suitability
+  const isOverallCleared = isTechnicallyCompatible && isBudgetCleared && isMissionSuitable;
 
   return {
     isPayloadCompatible,
@@ -429,6 +656,11 @@ export function getDetailedLaunchValidation(
     isWithinContingencyBudget,
     isBudgetCleared,
     budgetStatus,
+
+    isMissionSuitable,
+    missionSuitabilityStatus,
+    missionSuitabilityReasons,
+    polarCoverageSatisfied,
 
     isOverallCleared,
 
@@ -445,6 +677,7 @@ export function getDetailedLaunchValidation(
 
     technicalErrors,
     budgetErrors,
+    missionErrors,
     allErrors,
     warnings,
     recommendations
@@ -453,7 +686,7 @@ export function getDetailedLaunchValidation(
 
 /**
  * Validates a launch vehicle configuration comprehensively against the selected orbit,
- * spacecraft mass, budget allowance, destination restrictions, and fairing constraints.
+ * spacecraft mass, budget allowance, destination restrictions, fairing constraints, and mission mandate.
  * Returns standard ValidationResult contract.
  */
 export function validateLaunchVehicleSuitability(
@@ -462,7 +695,8 @@ export function validateLaunchVehicleSuitability(
   spacecraftMassKg: number,
   scenarioBudgetMUSD: number,
   spacecraftCostMUSD: number,
-  spacecraftDimensions?: SpacecraftDimensionsConstraint
+  spacecraftDimensions?: SpacecraftDimensionsConstraint,
+  scenario?: MissionScenario | string
 ): ValidationResult {
   const detail = getDetailedLaunchValidation(
     vehicle,
@@ -470,7 +704,8 @@ export function validateLaunchVehicleSuitability(
     spacecraftMassKg,
     scenarioBudgetMUSD,
     spacecraftCostMUSD,
-    spacecraftDimensions
+    spacecraftDimensions,
+    scenario
   );
 
   return {
@@ -486,14 +721,17 @@ export function validateLaunchConfiguration(
   orbit: OrbitProfile,
   spacecraftMassKg: number,
   scenarioBudgetMUSD: number,
-  spacecraftCostMUSD: number
+  spacecraftCostMUSD: number,
+  scenario?: MissionScenario | string
 ): LaunchConfiguration {
   const detail = getDetailedLaunchValidation(
     vehicle,
     orbit,
     spacecraftMassKg,
     scenarioBudgetMUSD,
-    spacecraftCostMUSD
+    spacecraftCostMUSD,
+    undefined,
+    scenario
   );
 
   return {

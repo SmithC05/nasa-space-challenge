@@ -126,7 +126,8 @@ const initialLaunch = validateLaunchConfiguration(
   defaultOrbit,
   initialDesign.resources.totalMassKg,
   defaultScenario.budgetMUSD,
-  initialDesign.resources.totalCostMUSD
+  initialDesign.resources.totalCostMUSD,
+  defaultScenario
 );
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -143,7 +144,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       selectedOrbit,
       updatedDesign.resources.totalMassKg,
       scenario.budgetMUSD,
-      updatedDesign.resources.totalCostMUSD
+      updatedDesign.resources.totalCostMUSD,
+      scenario
     );
 
     set({
@@ -188,7 +190,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       selectedOrbit,
       updatedDesign.resources.totalMassKg,
       selectedScenario.budgetMUSD,
-      updatedDesign.resources.totalCostMUSD
+      updatedDesign.resources.totalCostMUSD,
+      selectedScenario
     );
 
     set({
@@ -224,7 +227,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       orbit,
       currentDesign.resources.totalMassKg,
       selectedScenario.budgetMUSD,
-      currentDesign.resources.totalCostMUSD
+      currentDesign.resources.totalCostMUSD,
+      selectedScenario
     );
     set({ selectedOrbit: orbit, launchConfig: updatedLaunch });
     if (activeRoom) {
@@ -239,7 +243,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       selectedOrbit,
       currentDesign.resources.totalMassKg,
       selectedScenario.budgetMUSD,
-      currentDesign.resources.totalCostMUSD
+      currentDesign.resources.totalCostMUSD,
+      selectedScenario
     );
     set({ selectedVehicle: vehicle, launchConfig: updatedLaunch });
     if (activeRoom) {

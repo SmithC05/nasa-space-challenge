@@ -196,6 +196,7 @@ export function OrbitLaunchStudio() {
                 selectedOrbit={selectedOrbit}
                 currentDesign={currentDesign}
                 scenarioBudgetMUSD={selectedScenario.budgetMUSD}
+                selectedScenario={selectedScenario}
                 onSelect={selectVehicle}
               />
             ))}
@@ -223,6 +224,7 @@ export function OrbitLaunchStudio() {
         selectedOrbit={selectedOrbit}
         currentDesign={currentDesign}
         scenarioBudgetMUSD={selectedScenario.budgetMUSD}
+        selectedScenario={selectedScenario}
         onSelectVehicle={selectVehicle}
       />
 
