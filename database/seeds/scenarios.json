@@ -1,0 +1,42 @@
+[
+  {
+    "id": "scenario-earth-sentinel",
+    "name": "Earth Sentinel: Cryo & Climate",
+    "code": "OPS-2601",
+    "targetBody": "Earth",
+    "difficulty": "Beginner",
+    "budgetMUSD": 140,
+    "maxMassKg": 1200,
+    "targetOrbitType": "SSO"
+  },
+  {
+    "id": "scenario-artemis-prospector",
+    "name": "Artemis Polar Prospector",
+    "code": "LUNAR-2604",
+    "targetBody": "Moon",
+    "difficulty": "Intermediate",
+    "budgetMUSD": 220,
+    "maxMassKg": 2400,
+    "targetOrbitType": "TLI"
+  },
+  {
+    "id": "scenario-ares-recon",
+    "name": "Ares Weather & Atmospheric Scout",
+    "code": "MARS-2609",
+    "targetBody": "Mars",
+    "difficulty": "Advanced",
+    "budgetMUSD": 310,
+    "maxMassKg": 3200,
+    "targetOrbitType": "GTO"
+  },
+  {
+    "id": "scenario-nea-interceptor",
+    "name": "Deep Space Planetary Defense Sentinel",
+    "code": "DEF-2612",
+    "targetBody": "DeepSpace",
+    "difficulty": "Expert",
+    "budgetMUSD": 380,
+    "maxMassKg": 2800,
+    "targetOrbitType": "TLI"
+  }
+]

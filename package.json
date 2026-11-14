@@ -1,0 +1,25 @@
+{
+  "name": "orbital-mission-control",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Interactive browser-based 3D space mission engineering and management game for NASA Space Apps Challenge",
+  "author": "ORBITAL Team",
+  "license": "MIT",
+  "scripts": {
+    "dev": "concurrently -k -p \"[{name}]\" -n \"API,WEB\" -c \"cyan.bold,magenta.bold\" \"pnpm --filter @orbital/api dev\" \"pnpm --filter @orbital/web dev\"",
+    "build": "pnpm -r --filter \"@orbital/contracts\" --filter \"@orbital/simulation-engine\" --filter \"@orbital/game-data\" --filter \"@orbital/database\" build && pnpm --filter @orbital/api build && pnpm --filter @orbital/web build",
+    "typecheck": "pnpm -r run typecheck",
+    "lint": "pnpm -r run lint",
+    "test": "vitest run",
+    "db:setup": "pnpm --filter @orbital/database db:setup",
+    "db:generate": "pnpm --filter @orbital/database db:generate",
+    "db:migrate": "pnpm --filter @orbital/database db:migrate",
+    "db:seed": "pnpm --filter @orbital/database db:seed",
+    "db:reset": "pnpm --filter @orbital/database db:reset"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.7"
+  }
+}
