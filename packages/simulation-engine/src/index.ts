@@ -221,6 +221,266 @@ export function validateSpacecraftDesign(
 // ==========================================
 // 3. LAUNCH CONFIGURATION VALIDATION
 // ==========================================
+export interface SpacecraftDimensionsConstraint {
+  diameterM?: number;
+  heightM?: number;
+}
+
+/**
+ * Calculates effective payload capacity of a launch vehicle into a target orbit regime.
+ * Accounts for high-energy destination penalties (GTO/GEO/TLI) and high-inclination polar penalties (SSO/Polar).
+ */
+export function calculateVehicleOrbitCapacity(
+  vehicle: LaunchVehicle,
+  orbit: OrbitProfile
+): number {
+  const isPolar =
+    orbit.type === 'SSO' ||
+    orbit.type === 'MOLNIYA' ||
+    (orbit as any).category === 'POLAR' ||
+    orbit.id === 'orbit-polar' ||
+    orbit.inclinationDeg >= 85;
+
+  if (orbit.type === 'GTO' || orbit.type === 'GEO') {
+    return vehicle.payloadCapacityGtoKg;
+  } else if (orbit.type === 'TLI') {
+    return vehicle.payloadCapacityTliKg;
+  } else if (isPolar) {
+    return Math.round(vehicle.payloadCapacityLeoKg * 0.78);
+  }
+  return vehicle.payloadCapacityLeoKg;
+}
+
+export interface DetailedLaunchValidation {
+  // 1. Technical compatibility gates
+  isPayloadCompatible: boolean;
+  isOrbitCompatible: boolean;
+  isFairingCompatible: boolean;
+  isTechnicallyCompatible: boolean;
+
+  // 2. Budget status gates
+  isWithinBaseBudget: boolean;
+  isWithinContingencyBudget: boolean;
+  isBudgetCleared: boolean;
+  budgetStatus: 'WITHIN_BUDGET' | 'CONTINGENCY_USED' | 'BUDGET_EXCEEDED';
+
+  // 3. Overall launch clearance (all technical + budget gates must pass)
+  isOverallCleared: boolean;
+
+  // 4. Exact numerical metrics
+  effectiveCapacityKg: number;
+  payloadMarginKg: number;
+  spacecraftMassKg: number;
+  boosterCostMUSD: number;
+  spacecraftCostMUSD: number;
+  totalMissionCostMUSD: number;
+  baseBudgetMUSD: number;
+  maxBudgetWithBufferMUSD: number;
+  budgetOverrunMUSD: number;
+  budgetBufferRemainingMUSD: number;
+
+  // 5. Diagnostic messages
+  technicalErrors: string[];
+  budgetErrors: string[];
+  allErrors: string[];
+  warnings: string[];
+  recommendations: string[];
+}
+
+/**
+ * Evaluates comprehensive technical compatibility, budget clearance, and overall readiness
+ * for an orbit and launch vehicle selection. Separates technical capability from cost clearance.
+ */
+export function getDetailedLaunchValidation(
+  vehicle: LaunchVehicle,
+  orbit: OrbitProfile,
+  spacecraftMassKg: number,
+  scenarioBudgetMUSD: number,
+  spacecraftCostMUSD: number,
+  spacecraftDimensions?: SpacecraftDimensionsConstraint
+): DetailedLaunchValidation {
+  const technicalErrors: string[] = [];
+  const budgetErrors: string[] = [];
+  const warnings: string[] = [];
+  const recommendations: string[] = [];
+
+  const effectiveCapacityKg = calculateVehicleOrbitCapacity(vehicle, orbit);
+  const payloadMarginKg = Number((effectiveCapacityKg - spacecraftMassKg).toFixed(1));
+  const boosterCostMUSD = vehicle.launchCostMUSD;
+  const totalMissionCostMUSD = Number((spacecraftCostMUSD + boosterCostMUSD).toFixed(1));
+  const baseBudgetMUSD = scenarioBudgetMUSD;
+  const maxBudgetWithBufferMUSD = Number((scenarioBudgetMUSD * 1.15).toFixed(1));
+
+  // 1. Technical: Payload mass margin check
+  const isPayloadCompatible = payloadMarginKg >= 0;
+  if (!isPayloadCompatible) {
+    technicalErrors.push(
+      `Spacecraft mass (${spacecraftMassKg} kg) exceeds ${vehicle.name} capacity to ${orbit.name} (${effectiveCapacityKg} kg) by ${Math.abs(payloadMarginKg)} kg.`
+    );
+    recommendations.push(
+      `Upgrade to a higher-capacity booster class or reduce spacecraft payload wet mass.`
+    );
+  } else if (payloadMarginKg < effectiveCapacityKg * 0.08) {
+    warnings.push(
+      `Tight payload mass margin (+${payloadMarginKg} kg reserve, ${((payloadMarginKg / effectiveCapacityKg) * 100).toFixed(1)}%). Trajectory dispersion may affect insertion velocity.`
+    );
+  }
+
+  // 2. Technical: Orbit & Destination check
+  let isOrbitCompatible = true;
+  if (vehicle.class === 'Light' && (orbit.type === 'GEO' || orbit.type === 'TLI')) {
+    isOrbitCompatible = false;
+    technicalErrors.push(
+      `${vehicle.name} (Light class) lacks high-energy upper stage capacity for direct injection to ${orbit.name}.`
+    );
+    recommendations.push(
+      `Select ORBITAL-Core or ORBITAL-Heavy equipped with cryogenic upper stages for high-energy orbital insertion.`
+    );
+  }
+
+  if (vehicle.compatibleOrbitProfiles && vehicle.compatibleOrbitProfiles.length > 0) {
+    if (!vehicle.compatibleOrbitProfiles.includes(orbit.id)) {
+      isOrbitCompatible = false;
+      if (!technicalErrors.some((e) => e.includes('high-energy'))) {
+        technicalErrors.push(
+          `${vehicle.name} does not certify direct flight profile insertion into ${orbit.name}.`
+        );
+      }
+    }
+  }
+
+  // 3. Technical: Fairing dimension constraints
+  let isFairingCompatible = true;
+  if (spacecraftDimensions) {
+    const usableDiameter = vehicle.fairingDiameterM * 0.88;
+    const usableHeight = vehicle.fairingHeightM * 0.82;
+
+    if (spacecraftDimensions.diameterM && spacecraftDimensions.diameterM > usableDiameter) {
+      isFairingCompatible = false;
+      technicalErrors.push(
+        `Spacecraft diameter (${spacecraftDimensions.diameterM}m) exceeds dynamic payload fairing envelope (${vehicle.fairingDiameterM}m outer, max allowable ~${usableDiameter.toFixed(1)}m).`
+      );
+      recommendations.push(
+        `Select a booster with a wider payload fairing (ORBITAL-Core: 5.2m or ORBITAL-Heavy: 5.4m).`
+      );
+    }
+    if (spacecraftDimensions.heightM && spacecraftDimensions.heightM > usableHeight) {
+      isFairingCompatible = false;
+      technicalErrors.push(
+        `Spacecraft height (${spacecraftDimensions.heightM}m) exceeds usable fairing height (${vehicle.fairingHeightM}m total, max allowable ~${usableHeight.toFixed(1)}m).`
+      );
+      recommendations.push(`Select a booster with increased fairing vertical clearance.`);
+    }
+  }
+
+  const isTechnicallyCompatible = isPayloadCompatible && isOrbitCompatible && isFairingCompatible;
+
+  // 4. Budget status calculations
+  const isWithinBaseBudget = totalMissionCostMUSD <= baseBudgetMUSD;
+  const isWithinContingencyBudget = totalMissionCostMUSD <= maxBudgetWithBufferMUSD;
+  const isBudgetCleared = isWithinContingencyBudget;
+
+  let budgetStatus: 'WITHIN_BUDGET' | 'CONTINGENCY_USED' | 'BUDGET_EXCEEDED';
+  let budgetOverrunMUSD = 0;
+  let budgetBufferRemainingMUSD = 0;
+
+  if (isWithinBaseBudget) {
+    budgetStatus = 'WITHIN_BUDGET';
+    budgetBufferRemainingMUSD = Number((baseBudgetMUSD - totalMissionCostMUSD).toFixed(1));
+  } else if (isWithinContingencyBudget) {
+    budgetStatus = 'CONTINGENCY_USED';
+    budgetBufferRemainingMUSD = Number((maxBudgetWithBufferMUSD - totalMissionCostMUSD).toFixed(1));
+    warnings.push(
+      `Total mission cost ($${totalMissionCostMUSD}M) utilizes the 15% contingency reserve buffer beyond base budget ($${baseBudgetMUSD}M). Remaining buffer: $${budgetBufferRemainingMUSD}M.`
+    );
+  } else {
+    budgetStatus = 'BUDGET_EXCEEDED';
+    budgetOverrunMUSD = Number((totalMissionCostMUSD - maxBudgetWithBufferMUSD).toFixed(1));
+    budgetErrors.push(
+      `Total mission cost ($${totalMissionCostMUSD}M: $${spacecraftCostMUSD}M spacecraft + $${boosterCostMUSD}M booster) exceeds allowable budget (maximum with 15% buffer: $${maxBudgetWithBufferMUSD}M) by $${budgetOverrunMUSD}M.`
+    );
+    recommendations.push(
+      `Select a more economical booster class or optimize spacecraft bus/instrument selection to eliminate the $${budgetOverrunMUSD}M overrun.`
+    );
+  }
+
+  // 5. Reliability & operations notes
+  if (vehicle.reusable) {
+    recommendations.push(
+      `Reusable first stage enables propulsive recovery, reducing launch service pricing and turnaround time.`
+    );
+  }
+  if (vehicle.successRatePercent >= 99) {
+    recommendations.push(
+      `Booster features high flight heritage and >99% mission success probability.`
+    );
+  }
+
+  const allErrors = [...technicalErrors, ...budgetErrors];
+  const isOverallCleared = isTechnicallyCompatible && isBudgetCleared;
+
+  return {
+    isPayloadCompatible,
+    isOrbitCompatible,
+    isFairingCompatible,
+    isTechnicallyCompatible,
+
+    isWithinBaseBudget,
+    isWithinContingencyBudget,
+    isBudgetCleared,
+    budgetStatus,
+
+    isOverallCleared,
+
+    effectiveCapacityKg,
+    payloadMarginKg,
+    spacecraftMassKg,
+    boosterCostMUSD,
+    spacecraftCostMUSD,
+    totalMissionCostMUSD,
+    baseBudgetMUSD,
+    maxBudgetWithBufferMUSD,
+    budgetOverrunMUSD,
+    budgetBufferRemainingMUSD,
+
+    technicalErrors,
+    budgetErrors,
+    allErrors,
+    warnings,
+    recommendations
+  };
+}
+
+/**
+ * Validates a launch vehicle configuration comprehensively against the selected orbit,
+ * spacecraft mass, budget allowance, destination restrictions, and fairing constraints.
+ * Returns standard ValidationResult contract.
+ */
+export function validateLaunchVehicleSuitability(
+  vehicle: LaunchVehicle,
+  orbit: OrbitProfile,
+  spacecraftMassKg: number,
+  scenarioBudgetMUSD: number,
+  spacecraftCostMUSD: number,
+  spacecraftDimensions?: SpacecraftDimensionsConstraint
+): ValidationResult {
+  const detail = getDetailedLaunchValidation(
+    vehicle,
+    orbit,
+    spacecraftMassKg,
+    scenarioBudgetMUSD,
+    spacecraftCostMUSD,
+    spacecraftDimensions
+  );
+
+  return {
+    isValid: detail.isOverallCleared,
+    errors: detail.allErrors,
+    warnings: detail.warnings,
+    recommendations: detail.recommendations
+  };
+}
+
 export function validateLaunchConfiguration(
   vehicle: LaunchVehicle,
   orbit: OrbitProfile,
@@ -228,30 +488,26 @@ export function validateLaunchConfiguration(
   scenarioBudgetMUSD: number,
   spacecraftCostMUSD: number
 ): LaunchConfiguration {
-  let capacityKg = vehicle.payloadCapacityLeoKg;
-  if (orbit.type === 'GTO' || orbit.type === 'GEO') {
-    capacityKg = vehicle.payloadCapacityGtoKg;
-  } else if (orbit.type === 'TLI') {
-    capacityKg = vehicle.payloadCapacityTliKg;
-  } else if (orbit.type === 'SSO' || orbit.type === 'MOLNIYA') {
-    capacityKg = Math.round(vehicle.payloadCapacityLeoKg * 0.78);
-  }
-
-  const payloadMarginKg = Number((capacityKg - spacecraftMassKg).toFixed(1));
-  const estimatedCostMUSD = vehicle.launchCostMUSD;
-  const totalMissionCost = spacecraftCostMUSD + estimatedCostMUSD;
-
-  const isCompatible = payloadMarginKg >= 0 && totalMissionCost <= scenarioBudgetMUSD * 1.15;
+  const detail = getDetailedLaunchValidation(
+    vehicle,
+    orbit,
+    spacecraftMassKg,
+    scenarioBudgetMUSD,
+    spacecraftCostMUSD
+  );
 
   return {
     vehicleId: vehicle.id,
     orbitId: orbit.id,
     spacecraftMassKg,
     launchWindow: 'T-00:00:00 (Nominal UTC Window)',
-    launchSite: vehicle.class === 'Light' ? 'Vandenberg Space Force Base, SLC-2' : 'Cape Canaveral Space Force Station, SLC-40',
-    isCompatible,
-    payloadMarginKg,
-    estimatedCostMUSD
+    launchSite:
+      vehicle.class === 'Light'
+        ? 'Vandenberg Space Force Base, SLC-2'
+        : 'Cape Canaveral Space Force Station, SLC-40',
+    isCompatible: detail.isOverallCleared,
+    payloadMarginKg: detail.payloadMarginKg,
+    estimatedCostMUSD: vehicle.launchCostMUSD
   };
 }
 

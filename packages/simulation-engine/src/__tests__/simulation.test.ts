@@ -93,7 +93,7 @@ describe('ORBITAL Spacecraft Resource Engine', () => {
 
 describe('ORBITAL Launch Configuration Validation', () => {
   it('validates compatible booster payload capacity', () => {
-    const vehicle = LAUNCH_VEHICLES.find((v) => v.id === 'vehicle-phoenix-medium')!;
+    const vehicle = LAUNCH_VEHICLES.find((v) => v.id === 'vehicle-orbital-core' || v.id === 'vehicle-phoenix-medium')!;
     const orbit = ORBIT_PROFILES[0];
     const config = validateLaunchConfiguration(vehicle, orbit, 800, 150, 45);
 
@@ -102,7 +102,7 @@ describe('ORBITAL Launch Configuration Validation', () => {
   });
 
   it('rejects booster if payload mass exceeds vehicle capability', () => {
-    const lightVehicle = LAUNCH_VEHICLES.find((v) => v.id === 'vehicle-nova-light')!; // 650kg LEO
+    const lightVehicle = LAUNCH_VEHICLES.find((v) => v.id === 'vehicle-orbital-lite' || v.id === 'vehicle-nova-light')!; // 650kg LEO
     const orbit = ORBIT_PROFILES[0];
     const config = validateLaunchConfiguration(lightVehicle, orbit, 2500, 150, 45);
 

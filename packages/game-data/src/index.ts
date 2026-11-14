@@ -526,9 +526,9 @@ export * from './orbit-profiles';
 // ==========================================
 export const LAUNCH_VEHICLES: LaunchVehicle[] = [
   {
-    id: 'vehicle-nova-light',
-    name: 'Nova-1 Light Booster',
-    manufacturer: 'AeroLaunch Dynamics',
+    id: 'vehicle-orbital-lite',
+    name: 'ORBITAL-Lite',
+    manufacturer: 'ORBITAL Launch Systems (Fictional)',
     class: 'Light',
     payloadCapacityLeoKg: 650,
     payloadCapacityGtoKg: 180,
@@ -538,12 +538,26 @@ export const LAUNCH_VEHICLES: LaunchVehicle[] = [
     launchCostMUSD: 8.5,
     successRatePercent: 94.5,
     reusable: false,
-    description: 'Cost-effective two-stage smallsat booster. Ideal for compact low-cost missions with lean payloads.'
+    compatibleOrbitProfiles: ['orbit-leo', 'orbit-sso', 'orbit-polar'],
+    supportedDestinations: [
+      'Low Earth Orbit (LEO)',
+      'Sun-Synchronous Orbit (SSO)',
+      'Polar Orbit (POLAR)'
+    ],
+    deploymentRestrictions: [
+      'Direct GEO injection not supported (insufficient upper stage delta-V)',
+      'Interplanetary / TLI escape trajectories unsupported',
+      'Dynamic fairing envelope limited to smallsat / cubesat bus dimensions'
+    ],
+    simulationDisclaimer:
+      'Simulation assumption: illustrative smallsat booster performance and commercial launch pricing model.',
+    description:
+      'Cost-effective two-stage smallsat booster engineered for rapid-response deployment of light payloads into low Earth and polar orbits. (Simulation assumption: illustrative payload capacity and launch pricing).'
   },
   {
-    id: 'vehicle-phoenix-medium',
-    name: 'Phoenix-9 Reusable Workhorse',
-    manufacturer: 'Orbital Dynamics Corp',
+    id: 'vehicle-orbital-core',
+    name: 'ORBITAL-Core',
+    manufacturer: 'ORBITAL Launch Systems (Fictional)',
     class: 'Medium',
     payloadCapacityLeoKg: 16500,
     payloadCapacityGtoKg: 5800,
@@ -553,12 +567,27 @@ export const LAUNCH_VEHICLES: LaunchVehicle[] = [
     launchCostMUSD: 54.0,
     successRatePercent: 99.2,
     reusable: true,
-    description: 'Flight-proven reusable first-stage booster with exceptional reliability and large payload mass margin.'
+    compatibleOrbitProfiles: ['orbit-leo', 'orbit-sso', 'orbit-polar', 'orbit-geo'],
+    supportedDestinations: [
+      'Low Earth Orbit (LEO)',
+      'Sun-Synchronous Orbit (SSO)',
+      'Polar Orbit (POLAR)',
+      'Geostationary Transfer Orbit (GTO)',
+      'Direct GEO (with customer apogee kick)'
+    ],
+    deploymentRestrictions: [
+      'Downrange drone-ship recovery required for high-energy GTO missions',
+      'Direct planetary injection limited to small scientific probes'
+    ],
+    simulationDisclaimer:
+      'Simulation assumption: flight-proven reusable medium-lift booster operational parameters.',
+    description:
+      'Flight-proven reusable medium-lift workhorse with high reliability and propulsive recovery capability. (Simulation assumption: illustrative payload capacity and launch pricing).'
   },
   {
-    id: 'vehicle-atlas-heavy',
-    name: 'Ares-Atlas V Deep Space Heavy',
-    manufacturer: 'United Launch Consortium',
+    id: 'vehicle-orbital-heavy',
+    name: 'ORBITAL-Heavy',
+    manufacturer: 'ORBITAL Launch Systems (Fictional)',
     class: 'Heavy',
     payloadCapacityLeoKg: 24500,
     payloadCapacityGtoKg: 9200,
@@ -568,12 +597,28 @@ export const LAUNCH_VEHICLES: LaunchVehicle[] = [
     launchCostMUSD: 98.0,
     successRatePercent: 99.6,
     reusable: false,
-    description: 'High-energy cryogenic upper stage engineered specifically for high delta-V planetary exploration missions.'
+    compatibleOrbitProfiles: ['orbit-leo', 'orbit-sso', 'orbit-polar', 'orbit-geo'],
+    supportedDestinations: [
+      'Low Earth Orbit (LEO)',
+      'Sun-Synchronous Orbit (SSO)',
+      'Polar Orbit (POLAR)',
+      'Geostationary Orbit (GEO direct / GTO)',
+      'Trans-Lunar Injection (TLI)',
+      'Interplanetary Deep Space'
+    ],
+    deploymentRestrictions: [
+      'Requires dedicated high-energy cryogenic launch pad infrastructure',
+      'Expendable core configuration'
+    ],
+    simulationDisclaimer:
+      'Simulation assumption: cryogenic deep-space heavy-lift vehicle specifications.',
+    description:
+      'High-energy cryogenic upper stage for heavy payloads, direct geostationary insertion, and deep space exploration missions. (Simulation assumption: illustrative payload capacity and launch pricing).'
   },
   {
-    id: 'vehicle-titan-superheavy',
-    name: 'Titan SLS SuperHeavy',
-    manufacturer: 'NASA Core Systems',
+    id: 'vehicle-orbital-superheavy',
+    name: 'ORBITAL-SuperHeavy (Exploration Reference)',
+    manufacturer: 'NASA Reference Architecture (Simulation)',
     class: 'SuperHeavy',
     payloadCapacityLeoKg: 95000,
     payloadCapacityGtoKg: 38000,
@@ -583,9 +628,38 @@ export const LAUNCH_VEHICLES: LaunchVehicle[] = [
     launchCostMUSD: 175.0,
     successRatePercent: 98.0,
     reusable: false,
-    description: 'Monumental super-heavy launch vehicle capable of sending massive multi-ton scientific probes directly into interplanetary transfer.'
+    compatibleOrbitProfiles: ['orbit-leo', 'orbit-sso', 'orbit-polar', 'orbit-geo'],
+    supportedDestinations: [
+      'Low Earth Orbit (LEO)',
+      'Sun-Synchronous Orbit (SSO)',
+      'Geostationary Orbit (GEO)',
+      'Trans-Lunar Injection (TLI)',
+      'Mars / Outer Planet Direct Transfer'
+    ],
+    deploymentRestrictions: [
+      'Restricted to national flagship science campaigns and multi-ton deep space observatories',
+      'Extreme launch pad acoustical separation requirement'
+    ],
+    simulationDisclaimer:
+      'Simulation assumption: educational reference architecture based on NASA SLS / next-generation deep space heavy exploration boosters.',
+    description:
+      'Monumental super-heavy exploration booster based on SLS/deep space concepts for multi-ton interplanetary missions. (Simulation assumption: illustrative payload capacity and launch pricing).'
   }
 ];
+
+export function getLaunchVehicleById(id: string): LaunchVehicle | undefined {
+  const direct = LAUNCH_VEHICLES.find((v) => v.id === id);
+  if (direct) return direct;
+
+  const legacyMap: Record<string, string> = {
+    'vehicle-nova-light': 'vehicle-orbital-lite',
+    'vehicle-phoenix-medium': 'vehicle-orbital-core',
+    'vehicle-atlas-heavy': 'vehicle-orbital-heavy',
+    'vehicle-titan-superheavy': 'vehicle-orbital-superheavy'
+  };
+  const mapped = legacyMap[id];
+  return mapped ? LAUNCH_VEHICLES.find((v) => v.id === mapped) : undefined;
+}
 
 // ==========================================
 // 5. MISSION CRISIS & ANOMALY EVENTS

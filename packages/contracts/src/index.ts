@@ -148,7 +148,11 @@ export const LaunchVehicleSchema = z.object({
   launchCostMUSD: z.number().positive(),
   successRatePercent: z.number().min(0).max(100),
   description: z.string(),
-  reusable: z.boolean().default(false)
+  reusable: z.boolean().default(false),
+  compatibleOrbitProfiles: z.array(z.string()).optional(),
+  supportedDestinations: z.array(z.string()).optional(),
+  deploymentRestrictions: z.array(z.string()).optional(),
+  simulationDisclaimer: z.string().optional()
 });
 export type LaunchVehicle = z.infer<typeof LaunchVehicleSchema>;
 

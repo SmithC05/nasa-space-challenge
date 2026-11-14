@@ -92,7 +92,7 @@ interface GameState {
 
 const defaultScenario = MISSION_SCENARIOS[0];
 const defaultOrbit = ORBIT_PROFILES[1]; // SSO
-const defaultVehicle = LAUNCH_VEHICLES[1]; // Phoenix
+const defaultVehicle = LAUNCH_VEHICLES[1]; // ORBITAL-Core (Medium)
 const initialComponentIds = [
   'bus-smallsat-standard',
   'power-solar-standard-wings',

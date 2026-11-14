@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { LAUNCH_VEHICLES, ORBIT_PROFILES } from '@orbital/game-data';
+import { LAUNCH_VEHICLES, ORBIT_PROFILES, getLaunchVehicleById } from '@orbital/game-data';
 import { validateLaunchConfiguration } from '@orbital/simulation-engine';
 
 export const orbitsRouter = Router();
@@ -14,7 +14,7 @@ orbitsRouter.get('/vehicles', (_req, res) => {
 
 orbitsRouter.post('/validate-launch', (req, res) => {
   const { vehicleId, orbitId, spacecraftMassKg, scenarioBudgetMUSD, spacecraftCostMUSD } = req.body;
-  const vehicle = LAUNCH_VEHICLES.find((v) => v.id === vehicleId);
+  const vehicle = getLaunchVehicleById(vehicleId) || LAUNCH_VEHICLES.find((v) => v.id === vehicleId);
   const orbit = ORBIT_PROFILES.find((o) => o.id === orbitId);
 
   if (!vehicle || !orbit) {
