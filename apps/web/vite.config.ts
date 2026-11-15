@@ -13,5 +13,18 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true
+  },
+  optimizeDeps: {
+    include: [
+      'react',
+      'react-dom',
+      'zustand',
+      'lucide-react',
+      'three',
+      '@react-three/fiber',
+      'clsx',
+      'tailwind-merge',
+      'socket.io-client'
+    ]
   }
 });

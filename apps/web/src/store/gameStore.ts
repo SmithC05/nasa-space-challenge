@@ -36,12 +36,27 @@ import {
   submitEventChoiceSocket,
   updateDesignSocket
 } from '../services/socket';
+import {
+  validateMissionStart,
+  MissionStartValidationStatus,
+  MissionStartValidationResult
+} from '../features/mission-hub/utils/validate-mission-start';
 
 export type ActiveTab = 'hub' | 'lab' | 'orbit' | 'ops' | 'multiplayer';
 
 interface GameState {
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
+
+  // Game Mode Selection
+  gameMode: 'single' | 'multiplayer';
+  setGameMode: (mode: 'single' | 'multiplayer') => void;
+
+  // Feature F: Mission Initialization State
+  isMissionInitialized: boolean;
+  missionInitializationStatus: MissionStartValidationStatus;
+  initializeMission: (mode: 'single' | 'multiplayer', scenario?: MissionScenario) => MissionStartValidationResult;
+  resetMissionInitialization: () => void;
 
   // Scenarios
   scenarios: MissionScenario[];
@@ -133,6 +148,43 @@ export const useGameStore = create<GameState>((set, get) => ({
   activeTab: 'hub',
   setActiveTab: (tab) => set({ activeTab: tab }),
 
+  gameMode: 'single',
+  setGameMode: (mode) => set({ gameMode: mode }),
+
+  // Feature F: Mission initialization
+  isMissionInitialized: false,
+  missionInitializationStatus: 'READY_TO_START',
+  initializeMission: (mode, scenario) => {
+    const targetScenario = scenario || get().selectedScenario;
+    const { activeRoom } = get();
+
+    const validation = validateMissionStart(targetScenario, mode, {
+      activeRoomId: activeRoom?.code,
+      isRoomConnected: Boolean(activeRoom)
+    });
+
+    if (validation.isValid) {
+      set({
+        gameMode: mode,
+        selectedScenario: targetScenario,
+        isMissionInitialized: true,
+        missionInitializationStatus: validation.status
+      });
+    } else {
+      set({
+        missionInitializationStatus: validation.status
+      });
+    }
+
+    return validation;
+  },
+  resetMissionInitialization: () => {
+    set({
+      isMissionInitialized: false,
+      missionInitializationStatus: 'READY_TO_START'
+    });
+  },
+
   scenarios: MISSION_SCENARIOS,
   selectedScenario: defaultScenario,
   selectScenario: (scenario) => {
@@ -149,7 +201,8 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({
       selectedScenario: scenario,
       currentDesign: updatedDesign,
-      launchConfig: updatedLaunch
+      launchConfig: updatedLaunch,
+      isMissionInitialized: false
     });
 
     if (activeRoom) {
